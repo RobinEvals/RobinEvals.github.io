@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>The Isle网页皮肤编辑器</title>
+    <link rel="stylesheet" href="css/default_style.css?v=0.5.9.78">
+</head>
+<body>
+    <div id="app-container">
+        
+        <!-- 左侧面板 -->
+        <div id="left-panel">
+            <div style="position:relative; display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                <h2 style="color:#f7b05e; font-size:1.2rem; cursor:pointer;" id="appTitle" title="提示：连点 5 次解锁隐藏功能">The Isle网页皮肤编辑器</h2>
+                <button id="settingsBtn" class="btn btn-sm" title="设置" style="padding:0.25rem; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <i class="icon ico-settings-outlined sz16"></i>
+                </button>
+            </div>
+            
+            <div class="section">
+                <label>选择恐龙</label>
+                <div class="tree-dropdown" id="dinosaurSelectDropdown">
+                    <button class="tree-dropdown-trigger" type="button" id="dinosaurSelectTrigger">-- 选择恐龙 --</button>
+                    <div class="tree-dropdown-panel" id="dinosaurSelectPanel"></div>
+                </div>
+                <button class="btn btn-sm" id="resetBtn" style="margin-top:0.4rem; width:100%; font-size:0.75rem; padding:0.35rem 0.5rem;">
+                    <i class="icon ico-refresh sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                    重置配色
+                </button>
+            </div>
+            
+            <div class="section">
+                <label>图案</label>
+                <div style="display:flex; gap:0.5rem;">
+                    <select id="patternTypeSelect" style="flex:1;"></select>
+                    <select id="patternScaleSelect" style="flex:1;" title="纹理粗细（同时驱动 CNRE 纹理粗细字段）">
+                        <option value="medium">纹理 中</option>
+                        <option value="fine">纹理 细</option>
+                        <option value="coarse">纹理 粗</option>
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.4rem; margin-top:0.3rem;">
+                    <span style="font-size:0.55rem; color:var(--text-secondary);">细</span>
+                    <input type="range" id="varSlider" min="0" max="1" step="0.01" value="0.5" style="flex:1;">
+                    <span style="font-size:0.55rem; color:var(--text-secondary);">粗</span>
+                    <span id="varValue" style="font-size:0.6rem; color:var(--text-secondary); min-width:2.2rem; text-align:right;">0.500</span>
+                </div>
+            </div>
+            
+            <div class="section">
+                <label>性别与年龄段</label>
+                <div class="gender-toggle-row" style="display:flex; gap:0.5rem; margin:0.5rem 0;">
+                    <button class="btn btn-sm gender-btn active" id="genderMaleBtn"><i class="icon ico-male sz14"></i>雄性</button>
+                    <button class="btn btn-sm gender-btn" id="genderFemaleBtn"><i class="icon ico-female sz14"></i>雌性</button>
+                </div>
+
+                <!-- 年龄段滑块（有形态键的恐龙才显示） -->
+                <div id="ageStageRow" style="display:none; margin:0.5rem 0;">
+                    <label style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>年龄段</span>
+                        <span id="ageStageLabel" style="font-size:0.65rem; color:var(--text-secondary);">成年</span>
+                    </label>
+                    <input type="range" id="ageStageSlider" min="0" max="100" value="75" step="1" style="width:100%; margin-top:2px;">
+                    <div class="age-stage-markers"></div>
+                </div>
+            </div>
+
+            <div class="section">
+                <label>颜色编辑</label>
+                <div id="colorGrid"></div>
+
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;" id="undoRedoRow">
+                    <button id="uiToggleBtn" class="ui-toggle-fab" title="隐藏 UI (H)" style="margin-left:auto;">
+                        <i class="icon ico-eye sz18"></i>
+                    </button>
+                </div>
+
+                <!-- 材质微调（v0.5.9.56+ 位于颜色编辑区下方；默认隐藏，标题连点 5 次解锁并开启） -->
+                <div id="materialTuningSection" style="display:none;">
+                    <div class="mt-section-head">
+                        <span class="mt-section-title">材质微调 · 光滑度 / 金属度 / 自发光</span>
+                        <button id="mtResetBtn" class="btn btn-sm" title="恢复全部部位为默认">重置</button>
+                    </div>
+                    <!-- 各部位的光滑度/金属度/自发光滑块位于上方对应颜色部位内；「启用」开关在设置面板的「材质微调」行 -->
+                </div>
+            </div>
+            
+            <div class="section">
+                <label>快速编辑</label>
+                <div id="solidColorRow"></div>
+                <div class="quick-group">
+                    <span class="quick-group-label"><i class="icon ico-refresh sz14"></i>随机生成</span>
+                    <div class="quick-group-btns">
+                        <button class="btn btn-sm" id="randomAllPartsBtn"><i class="icon ico-palette sz14"></i>随机所有部位</button>
+                        <button class="btn btn-sm" id="randomSolidBtn"><i class="icon ico-colorize sz14"></i>随机纯色</button>
+                        <button class="btn btn-sm" id="randomGradientBtn"><i class="icon ico-palette sz14"></i>随机渐变</button>
+                        <button class="btn btn-sm" id="randomHueShiftBtn"><i class="icon ico-colorize sz14"></i>色相偏移</button>
+                    </div>
+                </div>
+                <div class="quick-group">
+                    <span class="quick-group-label"><i class="icon ico-glitch sz14"></i>故障</span>
+                    <div class="quick-group-btns">
+                        <button class="btn btn-sm" id="randomGlitchNegBtn" title="随机把部分通道打成负值（黑斑故障）"><i class="icon ico-glitch-neg sz14"></i>随机部位负向故障</button>
+                        <button class="btn btn-sm" id="randomGlitchPosBtn" title="随机把部分通道打成正值（白斑故障）"><i class="icon ico-glitch-pos sz14"></i>随机部位正向故障</button>
+                        <button class="btn btn-sm" id="glitchAllNegBtn" title="把所有区域都设为负向故障"><i class="icon ico-glitch-neg sz14"></i>负向故障所有区域</button>
+                        <button class="btn btn-sm" id="glitchAllPosBtn" title="把所有区域都设为正向故障"><i class="icon ico-glitch-pos sz14"></i>正向故障所有区域</button>
+                        <button class="btn btn-sm" id="randomGlitchFluorBtn" title="随机把部分通道设为荧光故障（保留色相）"><i class="icon ico-fluorescent sz14"></i>随机部位荧光故障</button>
+                        <button class="btn btn-sm" id="glitchAllFluorBtn" title="把所有区域都设为荧光故障"><i class="icon ico-fluorescent sz14"></i>荧光故障所有区域</button>
+                        <button class="btn btn-sm" id="randomGlitchInvBtn" title="随机把部分通道设为反色荧光故障（互补色相）"><i class="icon ico-invert-color sz14"></i>随机部位反色荧光故障</button>
+                        <button class="btn btn-sm" id="glitchAllInvBtn" title="把所有区域都设为反色荧光故障"><i class="icon ico-invert-color sz14"></i>反色荧光故障所有区域</button>
+                        <button class="btn btn-sm btn-danger" id="glitchClearAllBtn" title="解除所有区域的故障，恢复 base 颜色"><i class="icon ico-close sz14"></i>不故障所有区域</button>
+                    </div>
+                </div>
+                <div class="quick-group">
+                    <span class="quick-group-label"><i class="icon ico-invert-color sz14"></i>反色</span>
+                    <div class="quick-group-btns">
+                        <button class="btn btn-sm" id="invertColorsBtn" title="把所有未锁定部位颜色（含眼睛）一键取反"><i class="icon ico-invert-color sz14"></i>全部反色</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <label>历史调色板</label>
+                <div class="history-palette" id="historyPalette">
+                    <span style="color:var(--text-secondary);font-size:0.7rem;">使用过的颜色将显示在此</span>
+                </div>
+                <button class="btn btn-sm" id="clearHistoryBtn" style="margin-top:0.3rem; width:100%;">清空历史</button>
+            </div>
+        </div>
+        
+        <!-- 中间：3D预览 -->
+        <div id="preview-container">
+            
+            <!-- 移动端面板切换按钮 -->
+            <button id="leftPanelToggle" class="mobile-panel-toggle" title="左侧面板">
+                <i class="icon ico-menu sz20"></i>
+            </button>
+            <button id="rightPanelToggle" class="mobile-panel-toggle" title="右侧面板">
+                <i class="icon ico-settings sz20"></i>
+            </button>
+            
+            <!-- 右上角渲染菜单 -->
+            <div id="render-menu">
+                <!-- 菜单头部：3D图标 + 下拉箭头 -->
+                <div class="menu-header" id="renderMenuToggle">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <i class="icon ico-computer sz14"></i>
+                        渲染
+                    </span>
+                    <i class="icon ico-chevron sz12 chevron"></i>
+                </div>
+                
+                <!-- 菜单内容 -->
+                <div class="menu-content" id="renderMenuContent">
+                    <!-- 质量选择 -->
+                    <div class="menu-row">
+                        <span class="menu-label">质量</span>
+                        <select id="qualitySelect" class="menu-select">
+                            <option value="auto" selected>自动</option>
+                            <option value="low">低</option>
+                            <option value="medium">中</option>
+                            <option value="high">高</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 切换开关行 -->
+                    <div class="menu-row toggle-row">
+                        <button id="smoothToggleBtn" class="menu-btn toggle-btn">平滑: 关</button>
+                        <button id="normalToggleBtn" class="menu-btn toggle-btn">法线: 开</button>
+                    </div>
+                    
+                    <!-- 视图模式 -->
+                    <div class="menu-row toggle-row">
+                        <button id="cameraModeBtn" class="menu-btn toggle-btn">透视</button>
+                    </div>
+
+                    <!-- 网格背景叠加 -->
+                    <div class="menu-row toggle-row">
+                        <button id="gridToggleBtn" class="menu-btn toggle-btn">网格: 开</button>
+                    </div>
+                    <div class="menu-row grid-controls" id="gridControlsRow">
+                        <div class="grid-control-line">
+                            <span class="menu-label grid-label">颜色</span>
+                            <input type="color" id="gridColorInput" value="#292929" class="compact-color-input grid-color-swatch">
+                            <input type="text" id="gridColorHex" value="#292929" class="hex-input grid-hex-input" maxlength="7">
+                        </div>
+                        <div class="grid-control-line">
+                            <span class="menu-label grid-label">间距</span>
+                            <input type="range" id="gridSizeSlider" class="grid-slider" min="8" max="200" value="40">
+                            <span id="gridSizeValue" class="grid-value">40px</span>
+                        </div>
+                        <div class="grid-control-line">
+                            <span class="menu-label grid-label">粗细</span>
+                            <input type="range" id="gridLineWidthSlider" class="grid-slider" min="1" max="5" step="1" value="2">
+                            <span id="gridLineWidthValue" class="grid-value">2px</span>
+                        </div>
+                    </div>
+
+                    <!-- 光照下拉菜单 -->
+                    <div class="menu-row">
+                        <span class="menu-label">光照</span>
+                        <select id="lightingSelect" class="menu-select">
+                            <option value="normal">暗色光照</option>
+                            <option value="bright">明亮光照</option>
+                            <option value="dusk">黄昏光照</option>
+                            <option value="smooth">柔光</option>
+                            <option value="custom">自定义光照</option>
+                            <option value="flat">三渲二/无光照</option>
+                        </select>
+                    </div>
+
+                    <!-- 背景下拉菜单 -->
+                    <div class="menu-row">
+                        <span class="menu-label">背景</span>
+                        <select id="bgSelect" class="menu-select">
+                            <option value="dark">暗色</option>
+                            <option value="light">亮色</option>
+                            <option value="solid">纯色</option>
+                            <option value="custom">自定义图片</option>
+                        </select>
+                    </div>
+
+                    <!-- 动画暂停/播放 -->
+                    <div class="menu-row toggle-row">
+                        <button id="animPauseBtn" class="menu-btn toggle-btn pause-anim-btn" title="暂停动画">暂停动画</button>
+                    </div>
+
+                    <!-- T Pose 静止参考姿势 -->
+                    <div class="menu-row toggle-row">
+                        <button id="tPoseBtn" class="menu-btn toggle-btn" title="设为 T Pose（静止参考姿势）">T Pose</button>
+                    </div>
+
+                    <!-- 动画播放速度 -->
+                    <div class="menu-row" style="flex-direction:column; align-items:stretch; gap:5px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">动画速度</span>
+                            <span id="animSpeedValue" style="font-size:0.65rem; color:var(--text-secondary);">1.0x</span>
+                        </div>
+                        <input type="range" id="animSpeedSlider" min="0.1" max="3.0" step="0.1" value="1" style="width:100%;">
+                    </div>
+
+                    <!-- 自定义光照（仅在 custom 模式下显示） -->
+                    <div class="menu-row" id="customLightRow" style="display:none; flex-direction:column; align-items:stretch; gap:5px;">
+                        <span class="menu-label">自定义光照</span>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <input type="color" id="customLightColor" value="#ffeedd" class="compact-color-input">
+                            <span style="font-size:0.6rem; color:var(--text-secondary);">主光颜色</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">水平角度</span>
+                            <span id="customLightAzimuthValue" style="font-size:0.6rem; color:var(--text-secondary);">45°</span>
+                        </div>
+                        <input type="range" id="customLightAzimuth" min="0" max="360" value="45" style="width:100%;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">高度角</span>
+                            <span id="customLightElevationValue" style="font-size:0.6rem; color:var(--text-secondary);">60°</span>
+                        </div>
+                        <input type="range" id="customLightElevation" min="5" max="90" value="60" style="width:100%;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                            <span class="menu-label">主光强度</span>
+                            <span id="keyLightIntensityValue" style="font-size:0.6rem; color:var(--text-secondary);">1.8</span>
+                        </div>
+                        <input type="range" id="keyLightIntensity" min="0" max="4" step="0.1" value="1.8" style="width:100%;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">环境光颜色</span>
+                            <input type="color" id="ambientColor" value="#ffffff" class="compact-color-input" style="margin-left:auto;">
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">环境光强度</span>
+                            <span id="ambientIntensityValue" style="font-size:0.6rem; color:var(--text-secondary);">0.80</span>
+                        </div>
+                        <input type="range" id="ambientIntensity" min="0" max="2" step="0.05" value="0.8" style="width:100%;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">环境光角度</span>
+                            <span id="ambientAngleValue" style="font-size:0.6rem; color:var(--text-secondary);">0°</span>
+                        </div>
+                        <input type="range" id="ambientAngle" min="0" max="360" step="5" value="0" style="width:100%;">
+                    </div>
+
+                    <!-- 模型缩放与视图 -->
+                    <div class="menu-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span class="menu-label">模型缩放</span>
+                            <span id="modelScaleValue" style="font-size:0.65rem; color:var(--text-secondary);">1.0x</span>
+                        </div>
+                        <input type="range" id="modelScaleSlider" min="0.2" max="3.0" step="0.05" value="1" style="width:100%;">
+                        <button id="resetViewBtn" class="menu-btn" style="width:100%; font-size:0.65rem;">
+                            <i class="icon ico-home sz12" style="vertical-align:middle; margin-right:3px;"></i>
+                            还原视角
+                        </button>
+                        <button id="refreshModelBtn" class="menu-btn" style="width:100%; font-size:0.65rem;" title="强制刷新模型贴图和画布尺寸（颜色不同步或缩放异常时使用）">
+                            <i class="icon ico-refresh sz12" style="vertical-align:middle; margin-right:3px;"></i>
+                            刷新模型
+                        </button>
+                    </div>
+
+                    <!-- 上传背景图 -->
+                    <div class="menu-row">
+                        <label for="bgImageInput" class="menu-btn" style="cursor:pointer; width:100%; text-align:center; font-size:0.7rem;">
+                            <i class="icon ico-camera sz12" style="vertical-align:middle; margin-right:4px;"></i>
+                            上传背景图
+                            <input type="file" accept="image/*" id="bgImageInput" style="display:none;">
+                        </label>
+                    </div>
+
+                    <!-- 自定义纯色背景 -->
+                    <div class="menu-row" style="align-items:center; gap:6px;">
+                        <span class="menu-label">纯色背景</span>
+                        <input type="color" id="customBgColor" value="#1a1a1a" class="compact-color-input" style="margin-left:auto;">
+                    </div>
+
+                    <!-- 下载透明背景渲染图 -->
+                    <div class="menu-row">
+                        <button id="downloadTransparentBtn" class="menu-btn" style="width:100%; font-size:0.7rem;" title="导出当前恐龙的透明背景 PNG（不含网格）">
+                            <i class="icon ico-download sz12" style="vertical-align:middle; margin-right:4px;"></i>
+                            下载透明背景图
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 左上角方向陀螺 -->
+            <canvas id="view-gizmo" width="240" height="240" title="拖拽旋转视角 · 点击轴线切换正交视图"></canvas>
+
+            <div id="loading-overlay">
+                <div class="loading-card">
+                    <div class="loading-pulse"></div>
+                    <div class="loading-bar-track">
+                        <div class="loading-bar-fill" id="loading-bar-fill"></div>
+                    </div>
+                    <span id="loading-text">加载模型中...</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右侧面板 -->
+        <div id="right-panel">
+            <div class="section-group">
+                <div class="section">
+                    <label>快速套用配色</label>
+                    <div class="tree-dropdown" id="presetSchemeDropdown">
+                        <button class="tree-dropdown-trigger" type="button" id="presetSchemeTrigger">-- 选择预设配色 --</button>
+                        <div class="tree-dropdown-panel" id="presetSchemePanel">
+                            <input type="text" class="tree-dropdown-search" id="presetSchemeSearch" placeholder="搜索恐龙名字...">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section" id="officialSchemeSection" style="display:none;">
+                    <label>官方配色</label>
+                    <select id="officialSchemeSelect" style="width:100%; font-size:0.7rem;"></select>
+                </div>
+                
+                <div class="section">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <label>皮肤预设</label>
+                        <button class="btn btn-sm" id="togglePresetsBtn" style="padding:0.35rem 0.5rem;">
+                            <i class="icon ico-arrow-left sz14 rot-down"></i>
+                        </button>
+                    </div>
+                    <div style="display:flex; gap:0.3rem; margin-top:4px;">
+                        <input type="text" id="presetNameInput" placeholder="名称" style="flex:1; font-size:0.7rem;">
+                        <button class="btn btn-sm btn-primary" id="savePresetBtn">保存</button>
+                    </div>
+                    <div style="display:flex; gap:0.3rem; margin-top:4px; align-items:center;">
+                        <input type="text" id="presetSearchInput" placeholder="搜索预设..." style="flex:1; font-size:0.7rem;">
+                        <label style="display:flex; align-items:center; gap:0.2rem; font-size:0.65rem; white-space:nowrap; cursor:pointer; color:var(--text-secondary);">
+                            <input type="checkbox" id="presetGlitchFilter" style="width:auto; height:auto;"> 仅故障
+                        </label>
+                    </div>
+                    <div class="preset-list-wrapper" id="presetListWrapper">
+                        <div class="preset-list" id="presetList"></div>
+                        <div class="preset-resize-handle" id="presetResizeHandle" title="拖动调整高度"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section-group">
+                <div class="section">
+                    <label>导入皮肤码</label>
+                    <div style="display:flex; gap:0.3rem;">
+                        <input type="text" id="importCodeInput" placeholder="粘贴皮肤码..." style="flex:1; font-size:0.7rem;">
+                        <button class="btn btn-sm btn-primary" id="importCodeBtn">导入</button>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <label>颜色空间转换</label>
+                    <div style="display:flex; gap:0.3rem; align-items:center;">
+                        <button class="btn btn-sm" id="srgbToLinearBtn" style="font-size:0.6rem; flex:1;">sRGB→线性</button>
+                        <button class="btn btn-sm" id="linearToSrgbBtn" style="font-size:0.6rem; flex:1;">线性→sRGB</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section-group">
+                <div class="section code-section" data-code-section="skin">
+                    <div class="code-section-header">
+                        <label>生成的皮肤码</label>
+                        <button class="btn btn-sm code-collapse-btn" data-collapse="skin" title="折叠/展开">
+                            <i class="icon ico-arrow-left sz10 rot-down"></i>
+                        </button>
+                    </div>
+                    <div class="code-output code-section-body" id="codeOutput">
+                        <span id="skinCodeDisplay" style="word-break:break-all; user-select:all; cursor:pointer;"></span>
+                    </div>
+                    <button class="btn btn-sm code-copy-btn code-section-body" id="copyCodeBtn" data-copy-target="skinCodeDisplay" style="margin-top:0.3rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-copy sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        复制皮肤码
+                    </button>
+                </div>
+
+                <div class="section code-section" data-code-section="cnre">
+                    <div class="code-section-header">
+                        <label>CNRE 皮肤码 (S1)</label>
+                        <button class="btn btn-sm code-collapse-btn" data-collapse="cnre" title="折叠/展开">
+                            <i class="icon ico-arrow-left sz10 rot-down"></i>
+                        </button>
+                    </div>
+                    <div class="code-output code-section-body" id="cnreCodeOutput">
+                        <span id="cnreCodeDisplay" style="word-break:break-all; user-select:all; cursor:pointer;"></span>
+                    </div>
+                    <div id="cnreGlitchBadge" class="glitch-badge code-section-body"></div>
+                    <button class="btn btn-sm code-copy-btn code-section-body" id="copyCnreBtn" data-copy-target="cnreCodeDisplay" style="margin-top:0.3rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-copy sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        复制 CNRE 皮肤码
+                    </button>
+                </div>
+
+                <div class="section code-section" data-code-section="nyor">
+                    <div class="code-section-header">
+                        <label>Nyor's Overlay 码</label>
+                        <button class="btn btn-sm code-collapse-btn" data-collapse="nyor" title="折叠/展开">
+                            <i class="icon ico-arrow-left sz10 rot-down"></i>
+                        </button>
+                    </div>
+                    <div class="code-output code-section-body" id="nyorCodeOutput">
+                        <span id="nyorCodeDisplay" style="word-break:break-all; user-select:all; cursor:pointer; font-size:0.6rem;"></span>
+                    </div>
+                    <button class="btn btn-sm code-copy-btn code-section-body" id="copyNyorBtn" data-copy-target="nyorCodeDisplay" style="margin-top:0.3rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-copy sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        复制 Nyor Overlay 码
+                    </button>
+                </div>
+
+                <div class="section code-section" data-code-section="tool">
+                    <div class="code-section-header">
+                        <label>工具专属皮肤码</label>
+                        <button class="btn btn-sm code-collapse-btn" data-collapse="tool" title="折叠/展开">
+                            <i class="icon ico-arrow-left sz10 rot-down"></i>
+                        </button>
+                    </div>
+                    <div class="code-output code-section-body" id="toolCodeOutput">
+                        <span id="toolCodeDisplay" style="word-break:break-all; user-select:all; cursor:pointer; font-size:0.6rem;"></span>
+                    </div>
+                    <button class="btn btn-sm code-copy-btn code-section-body" id="copyToolBtn" data-copy-target="toolCodeDisplay" style="margin-top:0.3rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-copy sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        复制工具专属皮肤码
+                    </button>
+                </div>
+                
+                <div class="section">
+                    <label>烘焙贴图</label>
+                    <button class="btn btn-sm" id="exportBakedBtn" style="margin-top:0.1rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-output sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        点击可导出PNG格式的Pattern+TMC贴图
+                    </button>
+                </div>
+                
+            </div>
+            
+            <div class="section-group">
+                <div class="section" id="paletteGeneratorSection">
+                    <div class="palette-tabs">
+                        <button class="palette-tab active" data-tab="twoColor" type="button">双色渐变</button>
+                        <button class="palette-tab" data-tab="advanced" type="button">高级调色板</button>
+                    </div>
+
+                    <div class="palette-tab-panel active" id="twoColorPanel">
+                        <div class="gradient-color-row" id="gradRow1">
+                            <div class="color-info">
+                                <span class="color-dot" style="background:#666;"></span>
+                                <span class="color-name">起始色 <span class="color-en">Start</span></span>
+                            </div>
+                            <div class="color-controls">
+                                <input type="color" class="palette-color-input draggable-swatch" id="gradColor1" value="#000000">
+                                <input type="text" class="hex-input" id="gradHex1" value="#000000" maxlength="7">
+                            </div>
+                        </div>
+                        <div class="gradient-color-row" id="gradRow2">
+                            <div class="color-info">
+                                <span class="color-dot" style="background:#ccc;"></span>
+                                <span class="color-name">结束色 <span class="color-en">End</span></span>
+                            </div>
+                            <div class="color-controls">
+                                <input type="color" class="palette-color-input draggable-swatch" id="gradColor2" value="#FFFFFF">
+                                <input type="text" class="hex-input" id="gradHex2" value="#FFFFFF" maxlength="7">
+                            </div>
+                        </div>
+                        <div class="gradient-generator-row gradient-controls-row">
+                            <span class="row-label">颜色数量</span>
+                            <input type="number" id="gradSteps" value="5" min="2" max="32">
+                            <button class="btn btn-sm btn-primary" id="generateGradientBtn">生成</button>
+                        </div>
+                        <div class="gradient-results" id="twoColorGradientResults"></div>
+                    </div>
+
+                    <div class="palette-tab-panel" id="advancedPanel">
+                        <div class="gradient-color-row" id="advancedBaseRow">
+                            <div class="color-info">
+                                <span class="color-dot" style="background:#FF6B6B;"></span>
+                                <span class="color-name">基色 <span class="color-en">Base</span></span>
+                            </div>
+                            <div class="color-controls">
+                                <input type="color" class="palette-color-input" id="advancedBaseColor" value="#FF6B6B">
+                                <input type="text" class="hex-input" id="advancedBaseHex" value="#FF6B6B" maxlength="7">
+                                <button class="btn btn-sm btn-primary" id="generateAdvancedPaletteBtn">生成</button>
+                            </div>
+                        </div>
+
+                        <div class="gradient-color-row advanced-count-row" id="advancedCountRow">
+                            <div class="color-info">
+                                <span class="color-dot" style="background:#4dabff;"></span>
+                                <span class="color-name">颜色数量 <span class="color-en">Count</span></span>
+                            </div>
+                            <div class="color-controls">
+                                <input type="number" id="advancedCount" value="9" min="3" max="32" class="advanced-number">
+                            </div>
+                        </div>
+                        <div class="advanced-control-row">
+                            <span class="advanced-label">色相偏移</span>
+                            <input type="range" id="advancedHueShift" min="-180" max="180" value="45" step="1" class="advanced-slider">
+                            <span class="advanced-value" id="advancedHueShiftValue">45°</span>
+                        </div>
+                        <div class="advanced-control-row">
+                            <span class="advanced-label">亮度范围</span>
+                            <input type="range" id="advancedBrightnessRange" min="0" max="2" value="0.8" step="0.05" class="advanced-slider">
+                            <span class="advanced-value" id="advancedBrightnessRangeValue">0.80</span>
+                        </div>
+                        <div class="advanced-control-row">
+                            <span class="advanced-label">颜色偏移</span>
+                            <input type="range" id="advancedOffset" min="-1" max="1" value="0" step="0.05" class="advanced-slider">
+                            <span class="advanced-value" id="advancedOffsetValue">0.00</span>
+                        </div>
+                        <div class="advanced-control-row">
+                            <span class="advanced-label">饱和度调整</span>
+                            <input type="range" id="advancedSaturation" min="0" max="2" value="1" step="0.05" class="advanced-slider">
+                            <span class="advanced-value" id="advancedSaturationValue">1.00</span>
+                        </div>
+                        <div class="advanced-checkbox-row">
+                            <label><input type="checkbox" id="advancedSmallerRanges" checked> 使用较小范围</label>
+                            <label><input type="checkbox" id="advancedReplacePalette"> 替换现有配色</label>
+                        </div>
+                        <div class="advanced-results" id="advancedPaletteResults"></div>
+                    </div>
+                </div>
+
+                <div class="section" style="margin-top:0.5rem;">
+                    <label>反色工具</label>
+                    <div class="invert-color-row">
+                        <span class="invert-row-label">源色 Source</span>
+                        <div class="invert-row-controls">
+                            <input type="color" id="invertColorPicker" class="draggable-swatch" value="#946E3C">
+                            <input type="text" id="invertHexInput" class="hex-input" placeholder="#RRGGBB" maxlength="7" value="#946E3C">
+                            <button class="btn btn-sm" id="invertGenBtn" style="flex-shrink:0;">生成</button>
+                        </div>
+                    </div>
+                    <div id="invertResult" class="invert-color-row" style="display:none;">
+                        <span class="invert-row-label">反色 Invert</span>
+                        <div class="invert-row-controls">
+                            <div class="draggable-swatch" id="invertResultSwatch" style="cursor:pointer;" title="点击应用到该部位"></div>
+                            <span class="hex-input" id="invertResultHex" style="cursor:pointer;" title="点击应用到该部位">#6B91C3</span>
+                            <button class="btn btn-sm" id="invertApplyBtn" style="flex-shrink:0;">应用</button>
+                        </div>
+                    </div>
+                    <div class="invert-hint">颜色行右侧的「反色」图标会直接把该部位颜色反色并应用；也可在此手动调整源色 → 生成 → 应用。</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 面板拖拽调宽手柄（absolute 定位，不占 grid 格子） -->
+        <div id="leftPanelResizer" class="panel-resizer" title="拖拽调整左侧面板宽度"></div>
+        <div id="rightPanelResizer" class="panel-resizer" title="拖拽调整右侧面板宽度"></div>
+    </div>
+    
+    <!-- 移动端面板遮罩 -->
+    <div id="panel-backdrop"></div>
+    
+    <!-- 浮动 UI 显示按钮（仅在 UI 隐藏时显示） -->
+    <button id="uiToggleBtnFloating" class="ui-toggle-fab floating" title="显示 UI (H)" style="display:none;">
+        <i class="icon ico-eye-off sz18"></i>
+    </button>
+    
+    <div id="toast-container"></div>
+    <div id="drag-preview" style="position:fixed; pointer-events:none; z-index:9999; display:none; width:24px; height:24px; border-radius:50%; border:2px solid #fff; box-shadow:0 4px 12px rgba(0,0,0,0.5);"></div>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <script type="module" src="js/skin-main.js?v=0.5.9.78"></script>
+        <!-- 设置遮罩 -->
+        <div id="settingsBackdrop" class="settings-backdrop" style="display:none;"></div>
+        <!-- 悬浮设置面板（v0.5.9.46）— 页面级独立浮层，由标题右侧齿轮触发 -->
+        <div id="settingsPanel" class="floating-panel" style="display:none;" role="dialog" aria-label="设置">
+            <div class="fp-header">
+                <span class="fp-title">设置</span>
+                <button id="settingsCloseBtn" class="fp-close" title="关闭"><i class="icon ico-close sz12"></i></button>
+            </div>
+            <div class="fp-body">
+                <div class="fp-row">
+                    <span class="fp-label">主题（日 / 夜间）</span>
+                    <button id="themeToggleBtn" class="btn btn-sm" title="切换主题" style="padding:0.25rem; display:flex; align-items:center; justify-content:center;">
+                        <i class="icon ico-sun sz16"></i>
+                    </button>
+                </div>
+                <div class="fp-row" id="materialTuningSettingsRow" style="display:none; flex-direction: column; align-items: stretch; gap: 0.35rem;">
+                    <span class="fp-label" style="align-self: flex-start;">材质微调</span>
+                    <div class="mt-enable-toggles">
+                        <button class="btn btn-sm mt-enable-btn" id="smoothnessToggleBtn" data-kind="smooth">光滑度：关</button>
+                        <button class="btn btn-sm mt-enable-btn" id="metalnessToggleBtn" data-kind="metal">金属度：关</button>
+                        <button class="btn btn-sm mt-enable-btn" id="emissionToggleBtn" data-kind="emit">自发光：关</button>
+                    </div>
+                </div>
+                <div class="fp-row" id="mysteryRow" style="display:none;">
+                    <span class="fp-label">神秘小按钮</span>
+                    <button id="applyDevcodeBtn" class="btn btn-sm" title="应用神秘配色">敢不敢按下我？</button>
+                </div>
+                <div class="fp-row" id="cnreDevRawSettingsRow">
+                    <span class="fp-label">CNRE 原始通道编辑器</span>
+                    <button id="cnreDevRawToggleBtn" class="btn btn-sm mt-enable-btn" data-kind="cnredev" title="开启后各颜色部位显示「原始通道 · dev」面板（含输入/滑块两种模式）">原始通道：关</button>
+                </div>
+                <div class="fp-divider"></div>
+                <div class="fp-section-title">清空数据</div>
+                <button id="clearPresetsDataBtn" class="btn btn-sm btn-danger" style="width:100%; font-size:0.65rem;">⚠清空自定义皮肤预设？⚠</button>
+                <div id="clearPresetsConfirm" class="fp-confirm" style="display:none;">
+                    <span class="fp-confirm-text">你确定要清空已保存的配色预设与历史记录？</span>
+                    <div class="fp-confirm-btns">
+                        <button id="confirmClearPresetsDataBtn" class="btn btn-sm btn-danger" style="font-size:0.6rem;">确认</button>
+                        <button id="cancelClearPresetsDataBtn" class="btn btn-sm" style="font-size:0.6rem;">取消</button>
+                    </div>
+                </div>
+                <button id="clearPrefsBtn" class="btn btn-sm btn-danger" style="width:100%; font-size:0.65rem; margin-top:0.4rem;">⚠清空除预设之外的用户偏好⚠</button>
+                <div id="clearPrefsConfirm" class="fp-confirm" style="display:none;">
+                    <span class="fp-confirm-text">你确定要清空已选恐龙、纹理、面板宽度等偏好（保留主题与配色）？</span>
+                    <div class="fp-confirm-btns">
+                        <button id="confirmClearPrefsBtn" class="btn btn-sm btn-danger" style="font-size:0.6rem;">确认</button>
+                        <button id="cancelClearPrefsBtn" class="btn btn-sm" style="font-size:0.6rem;">取消</button>
+                    </div>
+                </div>
+                <button id="clearAllDataBtn" class="btn btn-sm btn-danger" style="width:100%; font-size:0.65rem; margin-top:0.4rem;">⚠清空全部本地数据⚠</button>
+                <div id="clearAllDataConfirm" class="fp-confirm" style="display:none;">
+                    <span class="fp-confirm-text">你确定要清空所有本地数据（包括自定义配色 / 偏好 / 主题）并重新加载页面？</span>
+                    <div class="fp-confirm-btns">
+                        <button id="confirmClearAllDataBtn" class="btn btn-sm btn-danger" style="font-size:0.6rem;">确认</button>
+                        <button id="cancelClearAllDataBtn" class="btn btn-sm" style="font-size:0.6rem;">取消</button>
+                    </div>
+                </div>
+                <div class="fp-divider"></div>
+                <div class="fp-section-title">关于</div>
+                <div class="fp-about">
+                    <a href="https://github.com/RobinEvals/RobinEvals.github.io" target="_blank" rel="noopener" class="fp-link">GitHub 仓库 ↗</a>
+                    <div class="fp-contact">你可以在CNRE QQ 群找到我：1054953139</div>
+                    <div class="fp-contact">我的QQ号是2494974610</div>
+					<div class="fp-contact">如果有需要的话，欢迎催更，因为我非常非常非常非常非常懒</div>
+                </div>
+            </div>
+        </div>
+
+</body>
+</html>
