@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { hexToRgb } from './skin-gradient-generator.js?v=0.5.9.78';
-import { DINOSAUR_DATA, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.78';
-import { getEyeConfig, SHARED_EYE_TEXTURES } from './skin-eye-config.js?v=0.5.9.78';
-import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.5.9.78';
+import { hexToRgb } from './skin-gradient-generator.js?v=0.5.9.79';
+import { DINOSAUR_DATA, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.79';
+import { getEyeConfig, SHARED_EYE_TEXTURES } from './skin-eye-config.js?v=0.5.9.79';
+import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.5.9.79';
 
 // 调试辅助：暴露 THREE 到全局，方便 F12 控制台直接排查（无害）
 window.THREE = THREE;

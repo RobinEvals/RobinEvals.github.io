@@ -563,7 +563,7 @@ export const DINOSAUR_DATA = {
 // 官方默认配色 (v0.5.9.16)：配色1 覆盖旧默认（重置按钮 / 配色方案下拉自动生效）。
 // 旧默认若与配色1不同，已作为「旧配色1」归档进 OFFICIAL_SCHEMES.archived，仍可手动套用。
 // 数据来源 DinoDefaultSkins.md，由 tools/build-official-schemes.mjs 生成，勿手改。
-import { OFFICIAL_DEFAULT_COLORS, OFFICIAL_PATTERN_SPECIAL } from './skin-official-schemes.js?v=0.5.9.78';
+import { OFFICIAL_DEFAULT_COLORS, OFFICIAL_PATTERN_SPECIAL } from './skin-official-schemes.js?v=0.5.9.79';
 for (const [_k, _colors] of Object.entries(OFFICIAL_DEFAULT_COLORS)) {
 	if (DINOSAUR_DATA[_k]) DINOSAUR_DATA[_k].colors = { ...DINOSAUR_DATA[_k].colors, ..._colors };
 }

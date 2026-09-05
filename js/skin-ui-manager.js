@@ -1,15 +1,15 @@
-import { COLOR_PARTS } from './skin-color-parts.js?v=0.5.9.78';
-import { DINOSAUR_DATA, CANNIBAL_COLORS, DIET_COLORS, DIET_LABELS, getPatternCode, resolvePatternByCode, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.78';
-import { OFFICIAL_SCHEMES } from './skin-official-schemes.js?v=0.5.9.78';
-import { generateSkinCode, parseSkinCode, isValidColorHex } from './skin-code-generator.js?v=0.5.9.78';
-import { encodeCNRE, decodeCNRE, isCNRECode, cnreIdToColorKey, colorKeyToCnreId, xs, rawLinearToHex, computeGlitchFromSrgbHex, boostSaturationToHex } from './skin-cnre-code-generator.js?v=0.5.9.78';
-import { encodeNyorOverlay, decodeNyorOverlay, isNyorOverlayCode } from './skin-nyor-overlay.js?v=0.5.9.78';
-import { encodeToolSkin, decodeToolSkin, isToolSkinCode } from './skin-tool-code.js?v=0.5.9.78';
-import { UndoRedoManager } from './skin-undo-redo.js?v=0.5.9.78';
-import { addPreset, deletePreset, loadPreset, getPresets, clearAllPresets } from './skin-preset-manager.js?v=0.5.9.78';
-import * as GradGen from './skin-gradient-generator.js?v=0.5.9.78';
-import { ThemeManager } from './skin-theme-manager.js?v=0.5.9.78';
-import { DinoPreview } from './skin-three-preview.js?v=0.5.9.78';
+import { COLOR_PARTS } from './skin-color-parts.js?v=0.5.9.79';
+import { DINOSAUR_DATA, CANNIBAL_COLORS, DIET_COLORS, DIET_LABELS, getPatternCode, resolvePatternByCode, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.79';
+import { OFFICIAL_SCHEMES } from './skin-official-schemes.js?v=0.5.9.79';
+import { generateSkinCode, parseSkinCode, isValidColorHex } from './skin-code-generator.js?v=0.5.9.79';
+import { encodeCNRE, decodeCNRE, isCNRECode, cnreIdToColorKey, colorKeyToCnreId, xs, rawLinearToHex, computeGlitchFromSrgbHex, boostSaturationToHex } from './skin-cnre-code-generator.js?v=0.5.9.79';
+import { encodeNyorOverlay, decodeNyorOverlay, isNyorOverlayCode } from './skin-nyor-overlay.js?v=0.5.9.79';
+import { encodeToolSkin, decodeToolSkin, isToolSkinCode } from './skin-tool-code.js?v=0.5.9.79';
+import { UndoRedoManager } from './skin-undo-redo.js?v=0.5.9.79';
+import { addPreset, deletePreset, loadPreset, getPresets, clearAllPresets } from './skin-preset-manager.js?v=0.5.9.79';
+import * as GradGen from './skin-gradient-generator.js?v=0.5.9.79';
+import { ThemeManager } from './skin-theme-manager.js?v=0.5.9.79';
+import { DinoPreview } from './skin-three-preview.js?v=0.5.9.79';
 
 // ---- dev 原始通道编辑器：滑块对数映射（量级 1 → 1e6，0 居中）与显示格式 ----
 const DEV_RAW_MAX_MAG = 1e6;
@@ -149,7 +149,8 @@ export class UIManager {
             this.metalnessTuningEnabled = !!data.metalnessTuningEnabled;
             this.emissionTuningEnabled = !!data.emissionTuningEnabled;
             this.mysteryUnlocked = !!data.mysteryUnlocked;
-            this.cnreSkinDevUnlocked = !!data.cnreSkinDevUnlocked;
+            // CNRE dev 原始通道编辑器：不持久化，默认关闭；每新会话只能通过标题 10 连点 / URL 触发开启。
+            this.cnreSkinDevUnlocked = false;
 
             // 恐龙/图案恢复完毕后，再按保存的皮肤去取对应默认配色
             // 例如霸王龙 5皮 → 优先用 patterns['5'][0]，而不是 shared[0]
@@ -195,7 +196,7 @@ export class UIManager {
                 metalnessTuningEnabled: this.metalnessTuningEnabled,
                 emissionTuningEnabled: this.emissionTuningEnabled,
                 mysteryUnlocked: this.mysteryUnlocked,
-                cnreSkinDevUnlocked: this.cnreSkinDevUnlocked,
+                // cnreSkinDevUnlocked 不持久化：每新会话默认关，仅当前会话通过 10 连点 / URL / 设置开关临时开启。
                 preview: this.preview ? this.preview.getPreviewState() : this.pendingPreviewPrefs
             };
             localStorage.setItem(PREF_KEY, JSON.stringify(data));
