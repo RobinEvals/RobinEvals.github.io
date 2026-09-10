@@ -3,7 +3,12 @@ export function hexToRgb(hex) {
 }
 
 export function rgbToHex(r, g, b) {
-    return [r, g, b].map(x => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0').toUpperCase()).join('');
+    const clampByte = (x) => {
+        const n = Number(x);
+        if (!Number.isFinite(n)) return 0; // 防御 NaN/undefined，避免吐出 "NANNAN" 字符串
+        return Math.max(0, Math.min(255, Math.round(n)));
+    };
+    return [clampByte(r), clampByte(g), clampByte(b)].map(x => x.toString(16).padStart(2, '0').toUpperCase()).join('');
 }
 
 export function rgbToHsl(r, g, b) {
@@ -83,6 +88,43 @@ export function generateRandomHueShift(count) {
         results.push(rgbToHex(c.r, c.g, c.b));
     }
     return results;
+}
+
+/**
+ * 生成两个随机颜色之间的渐变。
+ * @param {number} steps 步数
+ * @param {string} range 范围：'near'(相近) | 'mid'(中等) | 'wide'(大跨度)
+ */
+export function generateRandomGradient(steps, range = 'mid') {
+    const randHsl = () => ({ h: Math.random() * 360, s: 0.3 + Math.random() * 0.7, l: 0.2 + Math.random() * 0.6 });
+    const c1 = randHsl();
+    let c2;
+    if (range === 'wide') {
+        c2 = randHsl();
+    } else if (range === 'near') {
+        const hShift = (Math.random() - 0.5) * 60; // ±30°
+        const sShift = (Math.random() - 0.5) * 0.4;
+        const lShift = (Math.random() - 0.5) * 0.3;
+        c2 = {
+            h: (c1.h + hShift + 360) % 360,
+            s: Math.max(0.1, Math.min(1, c1.s + sShift)),
+            l: Math.max(0.1, Math.min(0.9, c1.l + lShift))
+        };
+    } else {
+        const hShift = (Math.random() - 0.5) * 180; // ±90°
+        const sShift = (Math.random() - 0.5) * 0.6;
+        const lShift = (Math.random() - 0.5) * 0.45;
+        c2 = {
+            h: (c1.h + hShift + 360) % 360,
+            s: Math.max(0.1, Math.min(1, c1.s + sShift)),
+            l: Math.max(0.1, Math.min(0.9, c1.l + lShift))
+        };
+    }
+    const c1rgb = hslToRgb(c1.h, c1.s, c1.l);
+    const c2rgb = hslToRgb(c2.h, c2.s, c2.l);
+    const h1 = rgbToHex(c1rgb.r, c1rgb.g, c1rgb.b);
+    const h2 = rgbToHex(c2rgb.r, c2rgb.g, c2rgb.b);
+    return generateGradient(h1, h2, steps);
 }
 
 export function generateAdvancedPalette(baseHex, options = {}) {

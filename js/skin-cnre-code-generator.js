@@ -10,8 +10,11 @@
  *    [1]   magic '1'  (49)
  *    [2]   header 字节：
  *            bit0      = isFemale (1=雌性)
- *            bit1..2   = patternIndex (0..2 → Pattern_1/2/3)
+ *            bit1..2   = patternIndex 低位 (0..3)
  *            bit3..4   = variation index → 取值 [2, 8, 16]（官方新增：纹理粗细）
+ *            bit5..6   = patternIndex 高位 (0..3)
+ *                      完整 patternIndex = 低位 + 高位<<2 → 0..15（对应 Pattern_1..16）
+ *                      向后兼容：旧 1/2/3 码高位恒为 0，variation 仍在 bit3..4
  *    [3 ..] 10 个通道块，每块 16 字节 = 4×float32 (r, g, b, a)
  *            顺序：body, underbelly, markings, flank, details(=旧 special),
  *                  maleDisplay, eyes(=旧 eye), teeth, mouth, claws
@@ -126,7 +129,7 @@ function sanitizeHex(hex) {
 // ---------------------------------------------------------------------------
 // 颜色转换辅助（sRGB 归一化 <-> 6位 hex）
 // ---------------------------------------------------------------------------
-function hexToFloat3(hex) {
+export function hexToFloat3(hex) {
     const clean = sanitizeHex(hex);
     return {
         r: parseInt(clean.slice(0, 2), 16) / 255,
@@ -166,16 +169,62 @@ function linearChannelToSrgb(c) {
     c = Math.max(0, Math.min(1, c));
     return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }
-function srgbFloat3ToLinear({ r, g, b }) {
+export function srgbFloat3ToLinear({ r, g, b }) {
     return { r: srgbChannelToLinear(r), g: srgbChannelToLinear(g), b: srgbChannelToLinear(b) };
 }
 function linearFloat3ToSrgb({ r, g, b }) {
     return { r: linearChannelToSrgb(r), g: linearChannelToSrgb(g), b: linearChannelToSrgb(b) };
 }
 
-/** 原始线性 float → 显示用 sRGB hex（clamp 到 [0,1]：负值→黑、超大正值→白、区间内正常） */
+/**
+ * 原始线性 float → 显示用 sRGB hex。
+ * v0.6.0 起：越界值走 Reinhard 伪 HDR 色调映射（v/(1+v)），保留通道比值，
+ * 从而让「单通道越界」的柔和荧光（如 R=10,G=1,B=0）在预览里呈现正确的色相与明度，
+ * 而不是被 clamp 成纯黄/纯白。负值→黑（故障黑斑）；合法 [0,1] 值同样参与映射，
+ * 保证比值方向一致（否则 G=1 会被当成比 R=10 更亮 → 错误地偏黄）。
+ */
 export function rawLinearToHex({ r, g, b }) {
-    return float3ToHex(linearFloat3ToSrgb({ r, g, b }));
+    const tm = (v) => {
+        if (!Number.isFinite(v) || v <= 0) return 0; // 负/零 → 黑
+        return v / (1 + v);                            // 越界值压缩，比值保留
+    };
+    return float3ToHex(linearFloat3ToSrgb({ r: tm(r), g: tm(g), b: tm(b) }));
+}
+
+/**
+ * 结构化解析某通道的「故障家族」（v0.6.0 新增，对应文档《TheIsle故障皮研究》）。
+ * 游戏故障 = 通道在线性 RGB 空间越界（合法 [0,1]）。返回：
+ *   family   : 'white'（三通道全等且为正，越界 → 白斑）
+ *            | 'black'（三通道全等且为负，越界 → 黑斑）
+ *            | 'saturated'（≥2 通道巨量且相近 → 饱和荧光，如 R=B=999 品红）
+ *            | 'soft'（单主导通道越界、其余合法/较小 → 非饱和柔和荧光）
+ *   dominant : 绝对值最大通道 'r'|'g'|'b'
+ *   magnitude: 最大绝对值（线性）
+ *   overflow : 是否 ≥5e6（文档：开始溢出污染邻域）
+ *   ratio    : maxV/minNZ（非零点比值，越大越「单色」）
+ *   equal    : 非零点比值是否接近相等（<1.6）
+ */
+export function analyzeGlitch(ch) {
+    if (!ch) return { family: 'off', dominant: null, magnitude: 0, overflow: false, ratio: 0, equal: false, posCount: 0, negCount: 0, outCount: 0, maxV: 0, minV: 0 };
+    const r = ch.r, g = ch.g, b = ch.b;
+    const abs = [Math.abs(r), Math.abs(g), Math.abs(b)];
+    const maxV = Math.max(...abs);
+    const nz = abs.filter(x => x > 1e-6);
+    const minV = nz.length ? Math.min(...nz) : 0;
+    const ratio = minV > 0 ? maxV / minV : Infinity;
+    const posCount = (r > 0 ? 1 : 0) + (g > 0 ? 1 : 0) + (b > 0 ? 1 : 0);
+    const negCount = (r < 0 ? 1 : 0) + (g < 0 ? 1 : 0) + (b < 0 ? 1 : 0);
+    const outCount = abs.filter(x => x > 1.0001).length;
+    const overflow = maxV >= 5e6;
+    const equal = minV > 1e-6 && ratio < 1.6;
+    let family;
+    if (posCount === 3 && equal) family = 'white';
+    else if (negCount === 3 && equal) family = 'black';
+    else if (outCount === 1) family = 'soft';
+    else if (outCount >= 2 && ratio < 4) family = 'saturated';
+    else family = 'soft';
+    const dom = abs[0] === maxV ? 'r' : abs[1] === maxV ? 'g' : 'b';
+    return { family, dominant: dom, magnitude: maxV, overflow, ratio, equal, posCount, negCount, outCount, maxV, minV };
 }
 
 /**
@@ -321,8 +370,18 @@ export function encodeCNRE({ isFemale, pattern, colors = {}, eyeColor, skinVaria
         }
     }
 
-    const patternIndex = Math.max(0, Math.min(2, patternToIndex(pattern)));
-    const header = (isFemale ? 1 : 0) | (patternIndex << 1) | (nearestVariationIndex(skinVariation) << 3);
+    // pattern 不再 clamp：支持到 16 种皮（index 0..15）。
+    // header 布局（向后兼容旧 1/2/3 码）：
+    //   bit0      = isFemale
+    //   bit1..2   = pattern 低位 (0..3)
+    //   bit3..4   = variation index (0..3)
+    //   bit5..6   = pattern 高位 (0..3)  → patternIndex = 低位 + 高位<<2 (0..15)
+    const patternIndex = patternToIndex(pattern);
+    const variationIndex = nearestVariationIndex(skinVariation);
+    const header = (isFemale ? 1 : 0)
+        | ((patternIndex & 3) << 1)
+        | ((variationIndex & 3) << 3)
+        | (((patternIndex >> 2) & 3) << 5);
 
     const buf = new Uint8Array(CNRE_TOTAL_BYTES);
     const dv = new DataView(buf.buffer);
@@ -369,12 +428,17 @@ export function generateGlitchFromCurrent({ isFemale, pattern, colors = {}, eyeC
 /** 新格式解码（S1 二进制） */
 function decodeCNRENew(body) {
     const bytes = base64UrlDecode(body);
-    if (bytes.length !== CNRE_TOTAL_BYTES) throw new Error('S1 短码长度无效');
+    // 放宽长度校验：社区 !skin 生成的码长度可变（175~283 字节，尾部带额外数据），
+    // 只要 ≥ 标准 163 字节即可——前 3 字节头部 + 字节 3 起按固定 16 字节步长排 10 个通道，
+    // 尾部多余数据直接忽略。过短的码（<163）仍视为非法。
+    if (bytes.length < CNRE_TOTAL_BYTES) throw new Error('S1 短码长度无效');
     if (bytes[0] !== CNRE_MAGIC[0] || bytes[1] !== CNRE_MAGIC[1]) throw new Error('不是 S1 短码');
 
     const header = bytes[2];
     const isFemale = (header & 1) === 1;
-    const patternIndex = Math.min((header >> 1) & 3, 2);
+    const patternLow = (header >> 1) & 3;
+    const patternHi  = (header >> 5) & 3;
+    const patternIndex = patternLow + (patternHi << 2);   // 0..15（最多 16 皮）
     const variationIndex = Math.min((header >> 3) & 3, 2);
     const skinVariation = CNRE_VARIATIONS[variationIndex];
 
@@ -444,7 +508,7 @@ function decodeCNREOld(body) {
 
     const isFemale = prefix[0] === '1';
     const textureDigit = parseInt(prefix[1] || '0', 10);
-    const pattern = indexToPattern(Math.max(0, Math.min(2, textureDigit)));
+    const pattern = indexToPattern(Math.max(0, Math.min(15, textureDigit)));
 
     const colors = {};
     const modes = {};

@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>The Isle网页皮肤编辑器</title>
-    <link rel="stylesheet" href="css/default_style.css?v=0.5.9.79">
+    <link rel="stylesheet" href="css/default_style.css?v=0.6.1.0">
 </head>
 <body>
     <div id="app-container">
@@ -89,7 +89,7 @@
                 </div>
             </div>
             
-            <div class="section">
+            <div class="section" data-float data-float-title="快速编辑">
                 <label>快速编辑</label>
                 <div id="solidColorRow"></div>
                 <div class="quick-group">
@@ -97,8 +97,10 @@
                     <div class="quick-group-btns">
                         <button class="btn btn-sm" id="randomAllPartsBtn"><i class="icon ico-palette sz14"></i>随机所有部位</button>
                         <button class="btn btn-sm" id="randomSolidBtn"><i class="icon ico-colorize sz14"></i>随机纯色</button>
-                        <button class="btn btn-sm" id="randomGradientBtn"><i class="icon ico-palette sz14"></i>随机渐变</button>
-                        <button class="btn btn-sm" id="randomHueShiftBtn"><i class="icon ico-colorize sz14"></i>色相偏移</button>
+                        <button class="btn btn-sm" id="randomGradientNearBtn"><i class="icon ico-gradient sz14"></i>相近渐变</button>
+                        <button class="btn btn-sm" id="randomGradientMidBtn"><i class="icon ico-gradient sz14"></i>中等渐变</button>
+                        <button class="btn btn-sm" id="randomGradientWideBtn"><i class="icon ico-gradient sz14"></i>大跨度渐变</button>
+                        <button class="btn btn-sm" id="randomGlitchSkinBtn"><i class="icon ico-glitch sz14"></i>随机故障皮肤</button>
                     </div>
                 </div>
                 <div class="quick-group">
@@ -108,9 +110,9 @@
                         <button class="btn btn-sm" id="randomGlitchPosBtn" title="随机把部分通道打成正值（白斑故障）"><i class="icon ico-glitch-pos sz14"></i>随机部位正向故障</button>
                         <button class="btn btn-sm" id="glitchAllNegBtn" title="把所有区域都设为负向故障"><i class="icon ico-glitch-neg sz14"></i>负向故障所有区域</button>
                         <button class="btn btn-sm" id="glitchAllPosBtn" title="把所有区域都设为正向故障"><i class="icon ico-glitch-pos sz14"></i>正向故障所有区域</button>
-                        <button class="btn btn-sm" id="randomGlitchFluorBtn" title="随机把部分通道设为荧光故障（保留色相）"><i class="icon ico-fluorescent sz14"></i>随机部位荧光故障</button>
+                        <button class="btn btn-sm" id="randomGlitchFluorBtn" title="随机把部分通道设为荧光故障"><i class="icon ico-fluorescent sz14"></i>随机部位荧光故障</button>
                         <button class="btn btn-sm" id="glitchAllFluorBtn" title="把所有区域都设为荧光故障"><i class="icon ico-fluorescent sz14"></i>荧光故障所有区域</button>
-                        <button class="btn btn-sm" id="randomGlitchInvBtn" title="随机把部分通道设为反色荧光故障（互补色相）"><i class="icon ico-invert-color sz14"></i>随机部位反色荧光故障</button>
+                        <button class="btn btn-sm" id="randomGlitchInvBtn" title="随机把部分通道设为反色荧光故障"><i class="icon ico-invert-color sz14"></i>随机部位反色荧光故障</button>
                         <button class="btn btn-sm" id="glitchAllInvBtn" title="把所有区域都设为反色荧光故障"><i class="icon ico-invert-color sz14"></i>反色荧光故障所有区域</button>
                         <button class="btn btn-sm btn-danger" id="glitchClearAllBtn" title="解除所有区域的故障，恢复 base 颜色"><i class="icon ico-close sz14"></i>不故障所有区域</button>
                     </div>
@@ -123,12 +125,28 @@
                 </div>
             </div>
             
-            <div class="section">
-                <label>历史调色板</label>
-                <div class="history-palette" id="historyPalette">
-                    <span style="color:var(--text-secondary);font-size:0.7rem;">使用过的颜色将显示在此</span>
+            <div class="section" data-float data-float-title="我的颜色">
+                <label>我的颜色</label>
+
+                <div class="palette-subhead collapsible" data-collapse-target="historyWrap"><i class="icon ico-chevron sz12 chevron"></i>历史</div>
+                <div class="palette-collapse-wrap" id="historyWrap">
+                    <div class="history-palette" id="historyPalette">
+                        <span style="color:var(--text-secondary);font-size:0.7rem;">使用过的颜色将显示在此</span>
+                    </div>
+                    <button class="btn btn-sm" id="clearHistoryBtn" style="margin-top:0.3rem; width:100%;">清空历史</button>
                 </div>
-                <button class="btn btn-sm" id="clearHistoryBtn" style="margin-top:0.3rem; width:100%;">清空历史</button>
+
+                <div class="palette-subhead collapsible" data-collapse-target="favoriteWrap"><i class="icon ico-chevron sz12 chevron"></i>偏好</span></div>
+                <div class="palette-collapse-wrap" id="favoriteWrap">
+                    <div class="share-import-row">
+                        <input type="text" id="shareCodeInput" class="share-code-input" placeholder="粘贴分享码…" maxlength="2000" autocomplete="off" spellcheck="false">
+                        <button class="btn btn-sm" id="importShareBtn">导入</button>
+                    </div>
+                    <div class="favorite-palette" id="favoritePalette">
+                        <span style="color:var(--text-secondary);font-size:0.7rem;">点击颜色行上的 ★ 可把当前颜色（含故障色）存到这里</span>
+                    </div>
+                    <button class="btn btn-sm" id="clearFavBtn" style="margin-top:0.3rem; width:100%;">清空偏好</button>
+                </div>
             </div>
         </div>
         
@@ -366,6 +384,9 @@
                         <input type="text" id="presetNameInput" placeholder="名称" style="flex:1; font-size:0.7rem;">
                         <button class="btn btn-sm btn-primary" id="savePresetBtn">保存</button>
                     </div>
+                    <div style="display:flex; gap:0.3rem; margin-top:4px;">
+                        <input type="text" id="presetDescInput" placeholder="描述（可选）" style="flex:1; font-size:0.7rem;">
+                    </div>
                     <div style="display:flex; gap:0.3rem; margin-top:4px; align-items:center;">
                         <input type="text" id="presetSearchInput" placeholder="搜索预设..." style="flex:1; font-size:0.7rem;">
                         <label style="display:flex; align-items:center; gap:0.2rem; font-size:0.65rem; white-space:nowrap; cursor:pointer; color:var(--text-secondary);">
@@ -416,7 +437,7 @@
 
                 <div class="section code-section" data-code-section="cnre">
                     <div class="code-section-header">
-                        <label>CNRE 皮肤码 (S1)</label>
+                        <label>CNRE 皮肤码</label>
                         <button class="btn btn-sm code-collapse-btn" data-collapse="cnre" title="折叠/展开">
                             <i class="icon ico-arrow-left sz10 rot-down"></i>
                         </button>
@@ -469,12 +490,16 @@
                         <i class="icon ico-output sz14" style="vertical-align:middle; margin-right:5px;"></i>
                         点击可导出PNG格式的Pattern+TMC贴图
                     </button>
+                    <button class="btn btn-sm" id="exportEyeBtn" style="margin-top:0.1rem; width:100%; font-size:0.75rem; padding:0.35rem 0.6rem;">
+                        <i class="icon ico-output sz14" style="vertical-align:middle; margin-right:5px;"></i>
+                        点击可导出PNG格式的眼睛材质贴图
+                    </button>
                 </div>
                 
             </div>
             
             <div class="section-group">
-                <div class="section" id="paletteGeneratorSection">
+                <div class="section" id="paletteGeneratorSection" data-float data-float-title="渐变色生成器">
                     <div class="palette-tabs">
                         <button class="palette-tab active" data-tab="twoColor" type="button">双色渐变</button>
                         <button class="palette-tab" data-tab="advanced" type="button">高级调色板</button>
@@ -559,8 +584,8 @@
                     </div>
                 </div>
 
-                <div class="section" style="margin-top:0.5rem;">
-                    <label>反色工具</label>
+            <div class="section" id="invertToolSection" style="margin-top:0.5rem;" data-float data-float-title="反色工具">
+                <label>反色工具</label>
                     <div class="invert-color-row">
                         <span class="invert-row-label">源色 Source</span>
                         <div class="invert-row-controls">
@@ -580,11 +605,21 @@
                     <div class="invert-hint">颜色行右侧的「反色」图标会直接把该部位颜色反色并应用；也可在此手动调整源色 → 生成 → 应用。</div>
                 </div>
             </div>
+
+
         </div>
 
         <!-- 面板拖拽调宽手柄（absolute 定位，不占 grid 格子） -->
-        <div id="leftPanelResizer" class="panel-resizer" title="拖拽调整左侧面板宽度"></div>
-        <div id="rightPanelResizer" class="panel-resizer" title="拖拽调整右侧面板宽度"></div>
+        <div id="leftPanelResizer" class="panel-resizer" title="拖拽调整左侧面板宽度">
+            <button class="panel-collapse-handle" data-side="left" title="收起左侧面板" type="button">
+                <i class="icon ico-arrow-left sz10"></i>
+            </button>
+        </div>
+        <div id="rightPanelResizer" class="panel-resizer" title="拖拽调整右侧面板宽度">
+            <button class="panel-collapse-handle" data-side="right" title="收起右侧面板" type="button">
+                <i class="icon ico-arrow-left sz10 rot-right"></i>
+            </button>
+        </div>
     </div>
     
     <!-- 移动端面板遮罩 -->
@@ -607,7 +642,7 @@
         }
     </script>
     
-    <script type="module" src="js/skin-main.js?v=0.5.9.79"></script>
+    <script type="module" src="js/skin-main.js?v=0.6.1.0"></script>
         <!-- 设置遮罩 -->
         <div id="settingsBackdrop" class="settings-backdrop" style="display:none;"></div>
         <!-- 悬浮设置面板（v0.5.9.46）— 页面级独立浮层，由标题右侧齿轮触发 -->
@@ -633,12 +668,21 @@
                 </div>
                 <div class="fp-row" id="mysteryRow" style="display:none;">
                     <span class="fp-label">神秘小按钮</span>
-                    <button id="applyDevcodeBtn" class="btn btn-sm" title="应用神秘配色">敢不敢按下我？</button>
+                    <button id="applyDevcodeBtn" class="btn btn-sm" title="dev mode">敢不敢按下我？</button>
                 </div>
-                <div class="fp-row" id="cnreDevRawSettingsRow">
-                    <span class="fp-label">CNRE 原始通道编辑器</span>
+                <div class="fp-row" id="cnreDevRawSettingsRow" style="display:none;">
+                    <span class="fp-label">CNRE RGB原始通道编辑器</span>
                     <button id="cnreDevRawToggleBtn" class="btn btn-sm mt-enable-btn" data-kind="cnredev" title="开启后各颜色部位显示「原始通道 · dev」面板（含输入/滑块两种模式）">原始通道：关</button>
                 </div>
+                <div class="fp-divider"></div>
+                <div class="fp-section-title">数据备份</div>
+                <button id="exportBackupBtn" class="btn btn-sm" style="width:100%; font-size:0.65rem; display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+                    <i class="icon ico-download sz14"></i>导出备份（JSON）
+                </button>
+                <button id="importBackupBtn" class="btn btn-sm" style="width:100%; font-size:0.65rem; margin-top:0.4rem; display:flex; align-items:center; justify-content:center; gap:0.35rem;">
+                    <i class="icon ico-input sz14"></i>导入备份（JSON）
+                </button>
+                <input type="file" id="importBackupInput" accept="application/json,.json" style="display:none;" />
                 <div class="fp-divider"></div>
                 <div class="fp-section-title">清空数据</div>
                 <button id="clearPresetsDataBtn" class="btn btn-sm btn-danger" style="width:100%; font-size:0.65rem;">⚠清空自定义皮肤预设？⚠</button>
@@ -675,6 +719,54 @@
                 </div>
             </div>
         </div>
+
+    <!-- 重命名偏好色弹窗（v0.5.9.80） -->
+    <div id="renameDialogBackdrop" class="rename-backdrop" style="display:none;"></div>
+    <div id="renameColorDialog" class="rename-dialog" style="display:none;" role="dialog" aria-label="重命名偏好色">
+        <div class="rename-dialog-header">
+            <span class="rename-dialog-title">重命名偏好色</span>
+            <button id="renameDialogCloseBtn" class="rename-dialog-close" title="关闭"><i class="icon ico-close sz12"></i></button>
+        </div>
+        <div class="rename-dialog-body">
+            <input type="text" id="renameDialogInput" class="rename-dialog-input" autocomplete="off" spellcheck="false">
+            <div class="rename-dialog-btns">
+                <button id="renameDialogConfirmBtn" class="btn btn-sm btn-primary" style="flex:1;">确定</button>
+                <button id="renameDialogCancelBtn" class="btn btn-sm" style="flex:1;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑预设描述弹窗（v0.6.0.1） -->
+    <div id="presetDescBackdrop" class="rename-backdrop" style="display:none;"></div>
+    <div id="presetDescDialog" class="rename-dialog" style="display:none;" role="dialog" aria-label="编辑预设描述">
+        <div class="rename-dialog-header">
+            <span class="rename-dialog-title">编辑预设描述</span>
+            <button id="presetDescCloseBtn" class="rename-dialog-close" title="关闭"><i class="icon ico-close sz12"></i></button>
+        </div>
+        <div class="rename-dialog-body">
+            <textarea id="presetDescEditInput" class="rename-dialog-input" rows="3" autocomplete="off" spellcheck="false" style="resize:vertical; min-height:64px; font-family:inherit;"></textarea>
+            <div class="rename-dialog-btns">
+                <button id="presetDescConfirmBtn" class="btn btn-sm btn-primary" style="flex:1;">确定</button>
+                <button id="presetDescCancelBtn" class="btn btn-sm" style="flex:1;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通用确认弹窗（v0.6.0.1，复用重命名弹窗样式） -->
+    <div id="confirmBackdrop" class="rename-backdrop" style="display:none;"></div>
+    <div id="confirmDialog" class="rename-dialog" style="display:none;" role="dialog" aria-label="确认">
+        <div class="rename-dialog-header">
+            <span class="rename-dialog-title" id="confirmDialogTitle">确认</span>
+            <button id="confirmDialogCloseBtn" class="rename-dialog-close" title="关闭"><i class="icon ico-close sz12"></i></button>
+        </div>
+        <div class="rename-dialog-body">
+            <div id="confirmDialogText" class="confirm-text"></div>
+            <div class="rename-dialog-btns">
+                <button id="confirmDialogOkBtn" class="btn btn-sm btn-danger" style="flex:1;">确认</button>
+                <button id="confirmDialogCancelBtn" class="btn btn-sm" style="flex:1;">取消</button>
+            </div>
+        </div>
+    </div>
 
 </body>
 </html>

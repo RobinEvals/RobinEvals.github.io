@@ -2,7 +2,7 @@
 // 与官方 CNRE / Nyor Overlay 码不同：本码不记录恐龙种类，导入时也不会自动切换恐龙。
 // 它保存每个部位的「基础颜色 + 故障(raw/mode)」以及纹理粗细，用于在本工具内完整还原一套皮肤。
 // 覆盖全部 10 个部位：body / underbelly / flank / markings / maleDisplay / special / teeth / mouth / claws / eye。
-import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.5.9.79';
+import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.6.1.0';
 
 // 全部部位（UI 键，含眼睛）
 const ALL_TOOL_PARTS = ['body', 'underbelly', 'flank', 'markings', 'maleDisplay', 'special', 'teeth', 'mouth', 'claws', 'eye'];

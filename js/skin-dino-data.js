@@ -215,15 +215,15 @@ export const DINOSAUR_DATA = {
 		patterns: ['1', '2', '3', 'Juvenile', 'Hatchling'],
 		colors: {
 			underbelly: '5A5A5A',
-			body: '2179C0',
-			flank: '2B3E94',
+			body: '3374A9',
+			flank: '313F7F',
 			markings: '232523',
-			maleDisplay: '8F3718',
+			maleDisplay: '7E3D26',
 			special: '000000',
-		teeth: 'A08A74',
-		mouth: 'B56E5A',
-		claws: 'B09776'
-	},
+			teeth: 'C8A38B',
+			mouth: 'B56E5A',
+			claws: 'B09776'
+		},
 	eyeColor: 'AC4D3C',
 	// 简单模式（与 Gallimimus 一致）：只播成年 Idle + 形态键(morph)，不做 additive 骨骼叠加。
 	// 年龄段滑块仅通过 morph 控制幼态/成体体型，不碰骨骼姿态——稳定、不会把模型算飞。
@@ -436,17 +436,17 @@ export const DINOSAUR_DATA = {
 		hasSpecial: false,
 		name: '重爪龙',
 		diet: 'carnivore',
-		patterns: ['1', '2', '3', 'Juvenile', 'Hatchling'],
+		patterns: ['1', '2', '3', '4', '5', 'Juvenile', 'Hatchling'],
 		colors: {
-			underbelly: '9F8D79',
-			body: '926D50',
-			flank: '6D473A',
+			underbelly: '9B8E7F',
+			body: '8A6F5A',
+			flank: '664A40',
 			markings: '1F1F1F',
-			maleDisplay: '4C666D',
+			maleDisplay: '516469',
 			special: '000000',
-			teeth: 'FFFFFF',
-			mouth: '7C5859',
-			claws: '312E27'
+			teeth: 'C8A38B',
+			mouth: '39363D',
+			claws: '29271F'
 		},
 		eyeColor: 'CDA174',
 	},
@@ -563,7 +563,7 @@ export const DINOSAUR_DATA = {
 // 官方默认配色 (v0.5.9.16)：配色1 覆盖旧默认（重置按钮 / 配色方案下拉自动生效）。
 // 旧默认若与配色1不同，已作为「旧配色1」归档进 OFFICIAL_SCHEMES.archived，仍可手动套用。
 // 数据来源 DinoDefaultSkins.md，由 tools/build-official-schemes.mjs 生成，勿手改。
-import { OFFICIAL_DEFAULT_COLORS, OFFICIAL_PATTERN_SPECIAL } from './skin-official-schemes.js?v=0.5.9.79';
+import { OFFICIAL_DEFAULT_COLORS, OFFICIAL_PATTERN_SPECIAL } from './skin-official-schemes.js?v=0.6.1.0';
 for (const [_k, _colors] of Object.entries(OFFICIAL_DEFAULT_COLORS)) {
 	if (DINOSAUR_DATA[_k]) DINOSAUR_DATA[_k].colors = { ...DINOSAUR_DATA[_k].colors, ..._colors };
 }

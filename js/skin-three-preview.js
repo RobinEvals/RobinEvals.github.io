@@ -2,17 +2,17 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { hexToRgb } from './skin-gradient-generator.js?v=0.5.9.79';
-import { DINOSAUR_DATA, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.79';
-import { getEyeConfig, SHARED_EYE_TEXTURES } from './skin-eye-config.js?v=0.5.9.79';
-import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.5.9.79';
+import { hexToRgb } from './skin-gradient-generator.js?v=0.6.1.0';
+import { DINOSAUR_DATA, getPatternHasSpecial } from './skin-dino-data.js?v=0.6.1.0';
+import { getEyeConfig, SHARED_EYE_TEXTURES } from './skin-eye-config.js?v=0.6.1.0';
+import { colorKeyToCnreId, cnreIdToColorKey } from './skin-cnre-code-generator.js?v=0.6.1.0';
 
 // 调试辅助：暴露 THREE 到全局，方便 F12 控制台直接排查（无害）
 window.THREE = THREE;
 
 // 构建版本戳：用于给模型/贴图等二进制资产追加 ?v= 缓存戳，
 // 避免浏览器/本地服务器/Service Worker 缓存住旧的 .glb（导致 Blender 重建后预览器仍显示旧模型）。
-const BUILD_VERSION = '0.5.9.1';
+const BUILD_VERSION = '0.6.0.5';
 const assetUrl = (p) => (p && p.indexOf('?') === -1 ? p + '?v=' + BUILD_VERSION : p);
 
 const SCENE_BG = { dark: 0x000000, light: 0xe8e8e8, dusk: 0x2d1f1a };
@@ -114,7 +114,7 @@ export class DinoPreview {
         this._emissionActive = false;
         this._emissionTex = null;
         this.emissionTuningEnabled = false;   // 自发光微调开关：true=应用分部位自发光（每个部位按自身配色发光）
-        this.glitchMode = {};                 // 故障皮预览：CNRE 通道 id → 'neg'|'pos'|'fluor'|'invfluor'（供故障自发光烘焙）
+        this.glitchMode = {};                 // 故障皮预览：CNRE 通道 id → 'neg'|'pos'|'fluor'|'invfluor'|'raw'（供故障自发光烘焙）
         this.glitchDisplayColors = {};        // 故障皮显示色（CNRE id → hex）：预览用，不污染 base color
         this.cameraMode = 'perspective'; // 'perspective' | 'orthographic'
         this.gizmoCanvas = null; this.gizmoCtx = null;
@@ -1120,7 +1120,7 @@ export class DinoPreview {
     _recomputeEmissionActive() {
         const custom = this.emissionTuningEnabled &&
             ROUGH_METAL_PARTS.some(id => this.partEmission[id] != null && this.partEmission[id] > 0);
-        // 故障皮：正向/荧光/反色故障的部位需自发光（与游戏内一致）；反向故障不发光
+        // 故障皮：正向/反色荧光故障的部位需自发光（与游戏内一致）；反向故障不发光
         const glitch = !!this.glitchMode && Object.values(this.glitchMode).some(m => m === 'pos' || m === 'fluor' || m === 'invfluor');
         this._emissionActive = custom || glitch;
     }
@@ -1478,7 +1478,9 @@ export class DinoPreview {
 
         // --- Parameters ---
         const irisR = (cfg.irisScale || 0.6) * (S / 2);
-        const outlineR = irisR * (cfg.irisOutlineScale || 0.6);
+        // 全局内圈(secondary)缩小系数：统一让虹膜内圈小一点（可整体调，单龙仍按 irisOutlineScale 比例）
+        const IRIS_OUTLINE_GLOBAL_SCALE = 0.5;
+        const outlineR = irisR * (cfg.irisOutlineScale || 0.6) * IRIS_OUTLINE_GLOBAL_SCALE;
         const pupilR = irisR * (cfg.pupilScale || 0.35);
         const blurPx = Math.min(cfg.irisBlur || 0, 8);
 
@@ -1505,27 +1507,48 @@ export class DinoPreview {
             }
             pctx.putImageData(imgData, 0, 0);
 
-            // Colorize the grayscale iris texture. The game material uses
-            // Overlay blending (Blend_Overlay appears in M_MasterEye),
-            // affects hue, saturation AND luminosity.
+            // 虹膜着色混合模式（对应游戏 M_MasterEye 的 Blend_Overlay）。
+            // 想换风格改这里一处即可：'overlay' | 'multiply' | 'screen' | 'soft-light'。
+            // primary 与 secondary 共用，保证两圈一致。
+            const EYE_IRIS_BLEND = 'multiply';
             const colorizeIris = (fillStyle) => {
                 ictx.drawImage(prepCanvas, cx - irisR, cy - irisR, id, id);
-                ictx.globalCompositeOperation = 'overlay';
+                ictx.globalCompositeOperation = EYE_IRIS_BLEND;
                 ictx.fillStyle = fillStyle;
                 ictx.fillRect(cx - irisR, cy - irisR, id, id);
                 ictx.globalCompositeOperation = 'source-over';
             };
 
-            // Primary: outer region
+            // Primary: full iris disk (outer region base color)
             colorizeIris(toCss(cfg.irisPrimary));
 
-            // Secondary: inner region (clip to outlineR, colorize again)
-            ictx.save();
-            ictx.beginPath();
-            ictx.arc(cx, cy, outlineR, 0, Math.PI * 2);
-            ictx.clip();
-            colorizeIris(toCss(secondaryHex));
-            ictx.restore();
+            // Secondary: inner region with a soft radial-gradient alpha falloff so the
+            // inner color blends into the outer primary instead of a hard clip edge.
+            // irisBlend = transition band width as a fraction of irisR (default 0.3).
+            const blend = (cfg.irisBlend != null ? cfg.irisBlend : 0.3) * irisR;
+            const secOuterR = outlineR + blend;
+            const secCanvas = document.createElement('canvas');
+            secCanvas.width = secCanvas.height = S;
+            const sctx = secCanvas.getContext('2d');
+            // colorize secondary onto its own canvas (same iris detail, same blend as primary)
+            sctx.drawImage(prepCanvas, cx - irisR, cy - irisR, id, id);
+            sctx.globalCompositeOperation = EYE_IRIS_BLEND;
+            sctx.fillStyle = toCss(secondaryHex);
+            sctx.fillRect(cx - irisR, cy - irisR, id, id);
+            sctx.globalCompositeOperation = 'source-over';
+            // soft alpha mask: opaque inside outlineR, fade to 0 by secOuterR
+            const secAlpha = sctx.createRadialGradient(cx, cy, 0, cx, cy, secOuterR);
+            secAlpha.addColorStop(0, 'rgba(0,0,0,1)');
+            secAlpha.addColorStop(Math.min(outlineR / secOuterR, 0.999), 'rgba(0,0,0,1)');
+            secAlpha.addColorStop(1, 'rgba(0,0,0,0)');
+            sctx.globalCompositeOperation = 'destination-in';
+            sctx.fillStyle = secAlpha;
+            sctx.beginPath();
+            sctx.arc(cx, cy, secOuterR, 0, Math.PI * 2);
+            sctx.fill();
+            sctx.globalCompositeOperation = 'source-over';
+            // composite secondary over primary (soft inner→outer blend)
+            ictx.drawImage(secCanvas, 0, 0);
 
             // Mask iris to circle
             ictx.globalCompositeOperation = 'destination-in';
@@ -1859,6 +1882,32 @@ export class DinoPreview {
             const a = document.createElement('a');
             a.href = url;
             a.download = filename || 'baked_skin.png';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }, 'image/png');
+        return true;
+    }
+
+    /**
+     * 导出当前眼睛材质（巩膜 + 虹膜主/次色 + 瞳孔，套当前眼色）合成贴图为 PNG 并触发下载。
+     * 复用 composeEyeTexture 与预览同一套合成逻辑；若处于故障眼态则导出显示色。
+     * @param {string} filename - 下载文件名, 如 'Dilophosaurus_Pattern_1_eye.png'
+     * @returns {boolean} 是否成功开始导出
+     */
+    exportEyeTexturePNG(filename) {
+        if (!this.eyeConfig) return false;
+        const displayEyeColor = (this.glitchMode && this.glitchMode['eyes'] && this.glitchDisplayColors && this.glitchDisplayColors['eyes']) || this.eyeColor;
+        const tex = this.composeEyeTexture(this.eyeConfig, displayEyeColor);
+        if (!tex || !tex.image) return false;
+        const canvas = tex.image;
+        canvas.toBlob(blob => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'eye.png';
             document.body.appendChild(a);
             a.click();
             a.remove();

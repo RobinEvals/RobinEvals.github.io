@@ -1,15 +1,17 @@
-import { COLOR_PARTS } from './skin-color-parts.js?v=0.5.9.79';
-import { DINOSAUR_DATA, CANNIBAL_COLORS, DIET_COLORS, DIET_LABELS, getPatternCode, resolvePatternByCode, getPatternHasSpecial } from './skin-dino-data.js?v=0.5.9.79';
-import { OFFICIAL_SCHEMES } from './skin-official-schemes.js?v=0.5.9.79';
-import { generateSkinCode, parseSkinCode, isValidColorHex } from './skin-code-generator.js?v=0.5.9.79';
-import { encodeCNRE, decodeCNRE, isCNRECode, cnreIdToColorKey, colorKeyToCnreId, xs, rawLinearToHex, computeGlitchFromSrgbHex, boostSaturationToHex } from './skin-cnre-code-generator.js?v=0.5.9.79';
-import { encodeNyorOverlay, decodeNyorOverlay, isNyorOverlayCode } from './skin-nyor-overlay.js?v=0.5.9.79';
-import { encodeToolSkin, decodeToolSkin, isToolSkinCode } from './skin-tool-code.js?v=0.5.9.79';
-import { UndoRedoManager } from './skin-undo-redo.js?v=0.5.9.79';
-import { addPreset, deletePreset, loadPreset, getPresets, clearAllPresets } from './skin-preset-manager.js?v=0.5.9.79';
-import * as GradGen from './skin-gradient-generator.js?v=0.5.9.79';
-import { ThemeManager } from './skin-theme-manager.js?v=0.5.9.79';
-import { DinoPreview } from './skin-three-preview.js?v=0.5.9.79';
+import { COLOR_PARTS } from './skin-color-parts.js?v=0.6.1.0';
+import { DINOSAUR_DATA, CANNIBAL_COLORS, DIET_COLORS, DIET_LABELS, getPatternCode, resolvePatternByCode, getPatternHasSpecial } from './skin-dino-data.js?v=0.6.1.0';
+import { OFFICIAL_SCHEMES } from './skin-official-schemes.js?v=0.6.1.0';
+import { generateSkinCode, parseSkinCode, isValidColorHex } from './skin-code-generator.js?v=0.6.1.0';
+import { encodeCNRE, decodeCNRE, isCNRECode, cnreIdToColorKey, colorKeyToCnreId, xs, rawLinearToHex, computeGlitchFromSrgbHex, boostSaturationToHex, analyzeGlitch, hexToFloat3, srgbFloat3ToLinear } from './skin-cnre-code-generator.js?v=0.6.1.0';
+import { encodeNyorOverlay, decodeNyorOverlay, isNyorOverlayCode } from './skin-nyor-overlay.js?v=0.6.1.0';
+import { encodeToolSkin, decodeToolSkin, isToolSkinCode } from './skin-tool-code.js?v=0.6.1.0';
+import { UndoRedoManager } from './skin-undo-redo.js?v=0.6.1.0';
+import { addPreset, deletePreset, loadPreset, getPresets, savePresets, clearAllPresets, renamePresetAt, setPresetDescriptionAt } from './skin-preset-manager.js?v=0.6.1.0';
+import { loadLibrary, saveLibrary, addColor as addLibraryColor, removeColor as removeLibraryColor, renameColor as renameLibraryColor, clearLibrary, encodeShareColor, decodeShareColor } from './skin-color-library.js?v=0.6.1.0';
+import * as GradGen from './skin-gradient-generator.js?v=0.6.1.0';
+import { ThemeManager } from './skin-theme-manager.js?v=0.6.1.0';
+import { DinoPreview } from './skin-three-preview.js?v=0.6.1.0';
+import { initFloatingPanels } from './skin-floating-panels.js?v=0.6.1.0';
 
 // ---- dev 原始通道编辑器：滑块对数映射（量级 1 → 1e6，0 居中）与显示格式 ----
 const DEV_RAW_MAX_MAG = 1e6;
@@ -50,6 +52,8 @@ function expandShorthandHex(hex) {
     }
     return '#' + h;
 }
+
+
 function normalizeHexInput(hexInput) {
     let v = formatHexInput(hexInput.value).replace('#', '');
     if (v.length === 3 || v.length === 4) {
@@ -91,7 +95,7 @@ export class UIManager {
         this.skinVariation = 8; // CNRE 纹理粗细：2=粗 / 8=中 / 16=细，默认 8
         this.glitchChannels = {}; // 故障皮：CNRE 通道 id → 原始线性值 {r,g,b}（负=黑斑，正=白斑，越界即故障）
         this.glitchBackup = {};   // 故障皮：编辑器键名 → 进入故障前的原色（用于还原/重复故障）
-        this.glitchMode = {};     // 故障皮：CNRE 通道 id → 'neg'|'pos'|'fluor'|'invfluor'
+        this.glitchMode = {};     // 故障皮：CNRE 通道 id → 'neg'|'pos'|'fluor'|'invfluor'|'raw'
         this.glitchDisplayColors = {}; // 故障皮：CNRE 通道 id → 预览显示色 hex（base color 不改动）
         this.lockedParts = new Set(); // 锁定的部位键名（含 'eye'）；锁定部位不被随机/反色/渐变/导入/官方配色覆盖
         this.presetsCollapsed = false;
@@ -105,6 +109,7 @@ export class UIManager {
 
         this.mysteryUnlocked = false;
         this.cnreSkinDevUnlocked = false; // CNRE 皮肤 dev 原始通道编辑器（标题连点 10 次 / ://CNREskindevtoggle 解锁）
+        this.cnreDevUnlocked = false;     // 彩蛋是否已解锁（控制设置入口行可见性；解锁后保持到会话结束，功能开关只切 cnreSkinDevUnlocked）
         this._titleClickTimer = null;
         this.presetFilter = { term: '', glitchOnly: false };
         this.presetListHeight = null; // 用户拖动后的高度，null 则用默认 CSS
@@ -112,6 +117,8 @@ export class UIManager {
         this.pendingPreviewPrefs = null;
         this._leftPanelW = 450;   // 左侧面板默认宽度（px）；拖拽调宽并持久化后优先用保存值
         this._rightPanelW = 450;  // 右侧面板默认宽度（px）
+        this._leftPanelCollapsed = false;
+        this._rightPanelCollapsed = false;
         this.loadPreferences();
         this.initDOMElements();
         this.init();
@@ -139,6 +146,8 @@ export class UIManager {
             if (Array.isArray(data.lockedParts)) this.lockedParts = new Set(data.lockedParts);
             if (typeof data.leftPanelWidth === 'number' && data.leftPanelWidth > 0) this._leftPanelW = data.leftPanelWidth;
             if (typeof data.rightPanelWidth === 'number' && data.rightPanelWidth > 0) this._rightPanelW = data.rightPanelWidth;
+            if (typeof data.leftPanelCollapsed === 'boolean') this._leftPanelCollapsed = data.leftPanelCollapsed;
+            if (typeof data.rightPanelCollapsed === 'boolean') this._rightPanelCollapsed = data.rightPanelCollapsed;
             if (data.codeCollapsed && typeof data.codeCollapsed === 'object') this.codeCollapsed = { ...this.codeCollapsed, ...data.codeCollapsed };
             if (typeof data.presetListHeight === 'number' && data.presetListHeight > 80) this.presetListHeight = data.presetListHeight;
             this.pendingPreviewPrefs = data.preview || null;
@@ -151,6 +160,7 @@ export class UIManager {
             this.mysteryUnlocked = !!data.mysteryUnlocked;
             // CNRE dev 原始通道编辑器：不持久化，默认关闭；每新会话只能通过标题 10 连点 / URL 触发开启。
             this.cnreSkinDevUnlocked = false;
+            this.cnreDevUnlocked = false;
 
             // 恐龙/图案恢复完毕后，再按保存的皮肤去取对应默认配色
             // 例如霸王龙 5皮 → 优先用 patterns['5'][0]，而不是 shared[0]
@@ -188,6 +198,8 @@ export class UIManager {
                 lockedParts: Array.from(this.lockedParts || []),
                 leftPanelWidth: this._leftPanelW,
                 rightPanelWidth: this._rightPanelW,
+                leftPanelCollapsed: this._leftPanelCollapsed,
+                rightPanelCollapsed: this._rightPanelCollapsed,
                 codeCollapsed: this.codeCollapsed,
                 presetListHeight: this.presetListHeight,
                 titleClicks: this.titleClicks,
@@ -239,9 +251,573 @@ export class UIManager {
         });
     }
 
+    // ===================== 偏好色库（v0.5.9.80）=====================
+    // 与「历史调色板」并列放在「我的颜色」区块。数据模型与拖拽 payload 一致：
+    // { hex, label?, glitch?: { channels:{r,g,b}, mode } }，因此天然支持含 raw 故障色的单色。
+
+    /** 抓取当前通道的 base + 故障状态，存入偏好库（一键保存，无需命名） */
+    saveCurrentColorAsFavorite(key) {
+        const cnreId = colorKeyToCnreId(key);
+        const hex = key === 'eye' ? (this.eyeColor || 'FFFFFF') : (this.currentColors[key] || '000000');
+        let glitch = null, display = hex;
+        if (this.isGlitched(key)) {
+            glitch = { channels: { ...this.glitchChannels[cnreId] }, mode: this.glitchMode[cnreId] || 'neg' };
+            display = this.glitchDisplayColors[cnreId] || hex;
+        }
+        const label = key === 'eye' ? '眼部' : (this._partLabel(key) || key);
+        const name = (label ? label + ' ' : '') + '#' + hex + (glitch ? '（故障）' : '');
+        addLibraryColor({ name, hex, label, display, glitch });
+        this.renderFavorites();
+        this.showToast('已存为偏好色：' + name);
+    }
+
+    /** 部件中文标签（用于默认命名） */
+    _partLabel(key) {
+        const p = COLOR_PARTS.find(x => x.id === key);
+        return p ? (p.label || '').split(' ')[0] : '';
+    }
+
+    /**
+     * 把「拖拽 / 偏好点击 / 分享导入」三处共用的单色套用逻辑抽出（v0.5.9.80）。
+     * payload = { hex, glitch?: { channels:{r,g,b}, mode } }，与拖拽 payload 完全一致。
+     * 故障分支严格复刻 drag/drop 已验证的写法（不额外改 glitchDisplayColors）。
+     */
+    applyColorPayload(targetKey, payload) {
+        if (!targetKey || !payload) return;
+        const hex = (payload.hex || '').replace('#', '').toUpperCase();
+        if (!hex || !isValidColorHex(hex)) { this.showToast('颜色无效'); return; }
+        const hasGlitch = !!payload.glitch;
+        if (targetKey === 'eye') {
+            if (this.isLocked('eye')) { this.showToast('眼部已锁定，无法套用'); return; }
+            if (hasGlitch) {
+                this.glitchBackup['eye'] = this.eyeColor || 'FFFFFF';
+                this.eyeColor = hex;
+                this.glitchChannels['eyes'] = { ...payload.glitch.channels };
+                this.glitchMode['eyes'] = payload.glitch.mode || 'neg';
+                this.refreshChannelUI(); this.onColorsChanged();
+                this.showToast('已应用故障颜色到眼部');
+            } else {
+                this.handleEyeColorChange(hex); this.updateEyeUI(); this.showToast('已应用颜色到眼部');
+            }
+            return;
+        }
+        if (targetKey === 'solid') { this.applySolidColor('#' + hex); return; }
+        if (targetKey && hex) {
+            if (this.isLocked(targetKey)) { this.showToast('「' + targetKey + '」已锁定，无法套用'); return; }
+            if (hasGlitch) {
+                this.glitchBackup[targetKey] = this.currentColors[targetKey];
+                this.currentColors[targetKey] = hex;
+                const cnreId = colorKeyToCnreId(targetKey);
+                this.glitchChannels[cnreId] = { ...payload.glitch.channels };
+                this.glitchMode[cnreId] = payload.glitch.mode || 'neg';
+                this.refreshChannelUI(); this.onColorsChanged(); this.addToHistory(hex);
+                this.showToast('已应用故障颜色到 ' + targetKey);
+            } else {
+                this.handleColorChange(targetKey, hex); this.updateAllInputs(); this.onColorsChanged(); this.addToHistory(hex); this.showToast('已应用颜色到 ' + targetKey);
+            }
+        }
+    }
+
+    /** 渲染偏好色库到 #favoritePalette（与历史调色板统一：仅 swatch，右键菜单操作） */
+    renderFavorites() {
+        const container = document.getElementById('favoritePalette');
+        if (!container) return;
+        const lib = loadLibrary();
+        container.innerHTML = '';
+        if (lib.length === 0) {
+            container.innerHTML = '<span style="color:var(--text-secondary);font-size:0.7rem;">点击颜色行上的 ★ 可把当前颜色（含故障色）存到这里</span>';
+            return;
+        }
+        lib.forEach(item => {
+            const swatch = document.createElement('div');
+            swatch.className = 'history-swatch' + (item.glitch ? ' fav-glitch' : '');
+            swatch.style.backgroundColor = '#' + (item.display || item.hex);
+            swatch.title = (item.name || '') + '  #' + item.hex + (item.glitch ? '  [故障]' : '') + '\n拖到任意通道即可套用，右键打开菜单';
+            swatch.setAttribute('data-color', item.hex);
+            swatch.setAttribute('draggable', 'true');
+            const buildPayload = () => ({
+                type: 'color', hex: item.hex, part: null,
+                label: item.label || item.name || '偏好色',
+                glitch: item.glitch ? { channels: { ...item.glitch.channels }, mode: item.glitch.mode || 'neg' } : null
+            });
+            swatch.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', JSON.stringify(buildPayload()));
+                e.dataTransfer.effectAllowed = 'copy';
+                const preview = document.getElementById('drag-preview');
+                if (preview) { preview.style.backgroundColor = '#' + item.hex; preview.style.display = 'block'; e.dataTransfer.setDragImage(preview, 12, 12); }
+            });
+            swatch.addEventListener('dragend', () => { const p = document.getElementById('drag-preview'); if (p) p.style.display = 'none'; });
+            swatch.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showColorContextMenu(e, item); });
+            container.appendChild(swatch);
+        });
+    }
+
+    /** 初始化偏好区为 drop zone：历史颜色可直接拖进来保存为偏好 */
+    initFavoriteDropZone() {
+        const fav = document.getElementById('favoritePalette');
+        if (!fav) return;
+        fav.addEventListener('dragover', (e) => {
+            const dt = e.dataTransfer;
+            if (dt && dt.types.includes('text/plain')) {
+                e.preventDefault();
+                dt.dropEffect = 'copy';
+                fav.classList.add('drag-over');
+            }
+        });
+        fav.addEventListener('dragleave', () => fav.classList.remove('drag-over'));
+        fav.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fav.classList.remove('drag-over');
+            let data;
+            try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { data = null; }
+            const hex = normalizeHex(data?.hex || '');
+            if (!isValidColorHex(hex)) { this.showToast('拖入的不是有效颜色'); return; }
+            const name = data?.label ? `${data.label} #${hex}` : `#${hex}`;
+            addLibraryColor({ name, hex, label: data?.label || '历史颜色', display: hex });
+            this.renderFavorites();
+            this.showToast('已保存到偏好：' + name);
+        });
+    }
+
+    /** 折叠：快速编辑 / 我的颜色 两段可整段收起；快速编辑内的小组也可单独收起；我的颜色内的「历史/偏好」子区域也可折叠。状态持久化到 localStorage。 */
+    initCollapsibles() {
+        const SEC_KEY = 'isle_collapsed_sections_v1';
+        const GRP_KEY = 'isle_collapsed_groups_v1';
+        const SUB_KEY = 'isle_palette_subheads_collapsed_v1';
+        const load = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
+        const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+        const secState = load(SEC_KEY), grpState = load(GRP_KEY), subState = load(SUB_KEY);
+
+        // 整段折叠（只针对「快速编辑」与「我的颜色」两段）
+        ['快速编辑', '我的颜色'].forEach(key => {
+            const sec = [...document.querySelectorAll('.section')].find(s => {
+                const l = s.querySelector(':scope > label');
+                return l && l.textContent.trim() === key;
+            });
+            if (!sec) return;
+            // v0.6.0.1：可浮动段落由浮动面板的「最小化」承担整段折叠，不再叠加原生折叠
+            if (sec.hasAttribute('data-float')) return;
+            sec.classList.add('collapsible');
+            const label = sec.querySelector(':scope > label');
+            const chev = document.createElement('i');
+            chev.className = 'icon ico-chevron sz14 section-chevron';
+            label.appendChild(chev);
+            if (secState[key]) sec.classList.add('collapsed');
+            label.addEventListener('click', () => {
+                sec.classList.toggle('collapsed');
+                secState[key] = sec.classList.contains('collapsed');
+                save(SEC_KEY, secState);
+            });
+        });
+
+        // 小组折叠（快速编辑内部的 随机生成 / 故障 / 反色）
+        ['随机生成', '故障', '反色'].forEach(key => {
+            const g = [...document.querySelectorAll('.quick-group')].find(x => {
+                const lab = x.querySelector('.quick-group-label');
+                if (!lab) return false;
+                const clone = lab.cloneNode(true);
+                clone.querySelectorAll('.icon').forEach(i => i.remove());
+                return (clone.textContent || '').trim() === key;
+            });
+            if (!g) return;
+            const lab = g.querySelector('.quick-group-label');
+            const chev = document.createElement('i');
+            chev.className = 'icon ico-chevron sz14 group-chevron';
+            lab.appendChild(chev);
+            if (grpState[key]) g.classList.add('collapsed');
+            lab.addEventListener('click', () => {
+                g.classList.toggle('collapsed');
+                grpState[key] = g.classList.contains('collapsed');
+                save(GRP_KEY, grpState);
+            });
+        });
+
+        // 我的颜色内「历史 / 偏好」子区域折叠
+        document.querySelectorAll('.palette-subhead.collapsible').forEach(head => {
+            const targetId = head.dataset.collapseTarget;
+            const wrap = targetId ? document.getElementById(targetId) : null;
+            if (!wrap) return;
+            const label = head.textContent.trim().split(/\s/)[0]; // "历史" / "偏好"
+            if (subState[label]) {
+                head.classList.add('collapsed');
+                wrap.classList.add('collapsed');
+            }
+            head.addEventListener('click', () => {
+                head.classList.toggle('collapsed');
+                wrap.classList.toggle('collapsed');
+                subState[label] = head.classList.contains('collapsed');
+                save(SUB_KEY, subState);
+            });
+        });
+    }
+
+    /** 创建/复用全局右键菜单 DOM */
+    getColorContextMenu() {
+        let menu = document.getElementById('colorContextMenu');
+        if (!menu) {
+            menu = document.createElement('div');
+            menu.id = 'colorContextMenu';
+            menu.className = 'color-context-menu';
+            document.body.appendChild(menu);
+            document.addEventListener('click', () => { menu.style.display = 'none'; }, true);
+            document.addEventListener('scroll', () => { menu.style.display = 'none'; }, true);
+        }
+        return menu;
+    }
+
+    /** 显示偏好色右键菜单 */
+    showColorContextMenu(e, item) {
+        const menu = this.getColorContextMenu();
+        menu.innerHTML = '';
+        const make = (label, iconClass, action) => {
+            const btn = document.createElement('button');
+            btn.className = 'color-context-item';
+            btn.innerHTML = `<span class="icon ${iconClass} sz12"></span><span>${label}</span>`;
+            btn.addEventListener('click', () => { action(); menu.style.display = 'none'; });
+            menu.appendChild(btn);
+        };
+        make('复制颜色', 'ico-copy', () => this._copyToClipboard('#' + item.hex, '已复制颜色 #' + item.hex));
+        make('复制分享码', 'ico-output', () => this.copyShareCode(item));
+        make('重命名', 'ico-edit', () => this.renameFavorite(item));
+        make('删除', 'ico-delete', () => this.confirmDeleteFavorite(item));
+        const x = e.clientX, y = e.clientY;
+        const rect = { w: 140, h: menu.scrollHeight || 128 };
+        menu.style.left = Math.min(x, window.innerWidth - rect.w - 8) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - rect.h - 8) + 'px';
+        menu.style.display = 'block';
+    }
+
+    /** 在原位置显示行内确认条（替换屏幕中央弹窗） */
+    showInlineConfirm(anchorEl, message, onConfirm) {
+        // 如果同一锚点已有确认条，先移除
+        const existing = anchorEl.parentNode?.querySelector('.inline-confirm');
+        if (existing) existing.remove();
+        const wrap = document.createElement('div');
+        wrap.className = 'inline-confirm';
+        wrap.innerHTML = `<span>${message}</span><button class="btn btn-sm btn-danger">确定</button><button class="btn btn-sm">取消</button>`;
+        const [yes, no] = wrap.querySelectorAll('button');
+        const close = () => { if (wrap.parentNode) wrap.remove(); };
+        yes.addEventListener('click', () => { close(); onConfirm(); });
+        no.addEventListener('click', close);
+        // 点击外部收回
+        setTimeout(() => {
+            const outside = (e) => { if (!wrap.contains(e.target) && !anchorEl.contains(e.target)) close(); };
+            document.addEventListener('click', outside, { once: true });
+        }, 0);
+        anchorEl.parentNode.insertBefore(wrap, anchorEl.nextSibling);
+    }
+
+    /** 删除偏好色（行内二次确认） */
+    confirmDeleteFavorite(item) {
+        const container = document.getElementById('favoritePalette');
+        const target = container?.querySelector(`.history-swatch[style*="#${item.display || item.hex}"]`) || container;
+        this.showInlineConfirm(target, `删除「${item.name || ('#' + item.hex)}」？`, () => {
+            removeLibraryColor(item.id);
+            this.renderFavorites();
+            this.showToast('已删除偏好色');
+        });
+    }
+
+    /** 创建/复用皮肤预设右键菜单 DOM */
+    getPresetContextMenu() {
+        let menu = document.getElementById('presetContextMenu');
+        if (!menu) {
+            menu = document.createElement('div');
+            menu.id = 'presetContextMenu';
+            menu.className = 'color-context-menu';
+            document.body.appendChild(menu);
+            document.addEventListener('click', () => { menu.style.display = 'none'; }, true);
+            document.addEventListener('scroll', () => { menu.style.display = 'none'; }, true);
+        }
+        return menu;
+    }
+
+    /** 显示皮肤预设右键菜单（重命名 / 删除） */
+    showPresetContextMenu(e, originalIndex) {
+        const menu = this.getPresetContextMenu();
+        menu.innerHTML = '';
+        const make = (label, iconClass, action) => {
+            const btn = document.createElement('button');
+            btn.className = 'color-context-item';
+            btn.innerHTML = `<span class="icon ${iconClass} sz12"></span><span>${label}</span>`;
+            btn.addEventListener('click', () => { action(); menu.style.display = 'none'; });
+            menu.appendChild(btn);
+        };
+        make('重命名', 'ico-edit', () => this.renamePreset(originalIndex));
+        make('编辑描述', 'ico-input', () => this.editPresetDescription(originalIndex));
+        make('删除', 'ico-delete', () => this.confirmDeletePreset(originalIndex));
+        const x = e.clientX, y = e.clientY;
+        const rect = { w: 140, h: menu.scrollHeight || 96 };
+        menu.style.left = Math.min(x, window.innerWidth - rect.w - 8) + 'px';
+        menu.style.top = Math.min(y, window.innerHeight - rect.h - 8) + 'px';
+        menu.style.display = 'block';
+    }
+
+    /** 删除皮肤预设（行内二次确认） */
+    confirmDeletePreset(originalIndex, anchorEl) {
+        const p = loadPreset(originalIndex);
+        const name = p ? (p.name || '该预设') : '该预设';
+        const target = anchorEl || document.getElementById('presetList');
+        this.showInlineConfirm(target, `删除预设「${name}」？`, () => {
+            deletePreset(originalIndex);
+            this.renderPresets();
+            this.showToast('已删除预设：' + name);
+        });
+    }
+
+    /** 重命名偏好色：打开自定义弹窗 */
+    renameFavorite(item) {
+        this.openRenameDialog(item);
+    }
+
+    openRenameDialog(item) {
+        this._renameTarget = item;
+        this._renamePresetIndex = null;
+        const backdrop = document.getElementById('renameDialogBackdrop');
+        const dialog = document.getElementById('renameColorDialog');
+        const input = document.getElementById('renameDialogInput');
+        if (!dialog || !input) return;
+        input.value = item.name || ('#' + item.hex);
+        if (backdrop) backdrop.style.display = 'block';
+        dialog.style.display = 'flex';
+        requestAnimationFrame(() => { input.focus(); input.select(); });
+    }
+
+    closeRenameDialog() {
+        this._renameTarget = null;
+        this._renamePresetIndex = null;
+        const backdrop = document.getElementById('renameDialogBackdrop');
+        const dialog = document.getElementById('renameColorDialog');
+        if (backdrop) backdrop.style.display = 'none';
+        if (dialog) dialog.style.display = 'none';
+    }
+
+    /** 打开重命名弹窗以重命名某个皮肤预设（按原数组索引） */
+    renamePreset(originalIndex) {
+        const p = loadPreset(originalIndex);
+        if (!p) return;
+        this._renameTarget = null;
+        this._renamePresetIndex = originalIndex;
+        const backdrop = document.getElementById('renameDialogBackdrop');
+        const dialog = document.getElementById('renameColorDialog');
+        const input = document.getElementById('renameDialogInput');
+        if (!dialog || !input) return;
+        input.value = p.name || '';
+        if (backdrop) backdrop.style.display = 'block';
+        dialog.style.display = 'flex';
+        requestAnimationFrame(() => { input.focus(); input.select(); });
+    }
+
+    /** 打开弹窗编辑某个皮肤预设的描述（v0.6.0.1） */
+    editPresetDescription(originalIndex) {
+        const p = loadPreset(originalIndex);
+        if (!p) return;
+        this._descPresetIndex = originalIndex;
+        const backdrop = document.getElementById('presetDescBackdrop');
+        const dialog = document.getElementById('presetDescDialog');
+        const input = document.getElementById('presetDescEditInput');
+        if (!dialog || !input) return;
+        input.value = p.description || '';
+        if (backdrop) backdrop.style.display = 'block';
+        dialog.style.display = 'flex';
+        requestAnimationFrame(() => { input.focus(); input.select(); });
+    }
+
+    confirmPresetDescDialog() {
+        const input = document.getElementById('presetDescEditInput');
+        const next = (input?.value || '').trim();
+        if (this._descPresetIndex != null) {
+            setPresetDescriptionAt(this._descPresetIndex, next);
+            this.renderPresets();
+            this.showToast(next ? '已更新预设描述' : '已清除预设描述');
+        }
+        this._descPresetIndex = null;
+        this.closePresetDescDialog();
+    }
+
+    closePresetDescDialog() {
+        this._descPresetIndex = null;
+        const backdrop = document.getElementById('presetDescBackdrop');
+        const dialog = document.getElementById('presetDescDialog');
+        if (backdrop) backdrop.style.display = 'none';
+        if (dialog) dialog.style.display = 'none';
+    }
+
+    confirmRenameDialog() {
+        const input = document.getElementById('renameDialogInput');
+        const next = (input?.value || '').trim();
+        if (this._renameTarget) {
+            renameLibraryColor(this._renameTarget.id, next || this._renameTarget.name);
+            this.renderFavorites();
+            this.showToast('已重命名偏好色');
+        } else if (this._renamePresetIndex != null) {
+            renamePresetAt(this._renamePresetIndex, next);
+            this.renderPresets();
+            this.showToast('已重命名预设');
+        }
+        this._renameTarget = null;
+        this._renamePresetIndex = null;
+        this.closeRenameDialog();
+    }
+
+    /** 复制某偏好色的稳定分享码（ISLECOLOR1. + base64url） */
+    copyShareCode(item) {
+        const code = encodeShareColor({ hex: item.hex, label: item.label || item.name || '', glitch: item.glitch });
+        this._copyToClipboard(code, '分享码已复制：' + (item.name || ('#' + item.hex)));
+    }
+
+    /** 解析粘贴的分享码并存入偏好库 */
+    importShareCode() {
+        const input = document.getElementById('shareCodeInput');
+        if (!input) return;
+        const decoded = decodeShareCode(input.value);
+        if (!decoded) { this.showToast('分享码无效（应以 ISLECOLOR1. 开头）'); return; }
+        const name = (decoded.label ? decoded.label + ' ' : '') + '#' + decoded.hex + (decoded.glitch ? '（故障）' : '');
+        addLibraryColor({ name, hex: decoded.hex, label: decoded.label, display: decoded.hex, glitch: decoded.glitch });
+        this.renderFavorites();
+        input.value = '';
+        this.showToast('已导入：' + name + '（拖到任意通道即可套用）');
+    }
+
+    // ---------- 数据备份（设置内导出 / 导入 JSON，本地存档防丢失）----------
+
+    /** 导出当前全部数据为 JSON 文件下载（偏好色库 + 整套皮肤预设） */
+    exportBackup() {
+        try {
+            const data = {
+                app: 'SkinPreviewer',
+                version: '0.6.0.5',
+                exportedAt: new Date().toISOString(),
+                skinPresets: getPresets(),
+                colorLibrary: loadLibrary()
+            };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const ts = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+            a.href = url;
+            a.download = `skinviewer-backup-${ts}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            this.showToast('已导出备份（' + data.skinPresets.length + ' 预设 / ' + data.colorLibrary.length + ' 偏好色）');
+        } catch (e) {
+            this.showToast('导出失败：' + (e && e.message ? e.message : e));
+        }
+    }
+
+    /** 选择 JSON 文件后导入（合并追加：跳过重复，不覆盖现有数据） */
+    importBackupFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            let data;
+            try { data = JSON.parse(reader.result); }
+            catch { this.showToast('导入失败：文件不是有效的 JSON'); return; }
+            if (!data || typeof data !== 'object') { this.showToast('导入失败：文件格式无效'); return; }
+            const skin = Array.isArray(data.skinPresets) ? data.skinPresets : [];
+            const lib = Array.isArray(data.colorLibrary) ? data.colorLibrary : [];
+            if (skin.length === 0 && lib.length === 0) { this.showToast('备份文件中没有可导入的数据'); return; }
+            this.openConfirm('导入备份', `将向现有数据追加：\n· ${skin.length} 个皮肤预设\n· ${lib.length} 个偏好色\n\n重复项会自动跳过，不会覆盖你现有的内容。确定继续？`, () => {
+                try {
+                    const addedSkin = this.mergePresets(skin);
+                    const addedLib = this.mergeLibrary(lib);
+                    this.renderPresets();
+                    this.renderFavorites();
+                    this.showToast('已追加：' + addedSkin + ' 预设 / ' + addedLib + ' 偏好色（重复的已跳过）');
+                } catch (e) {
+                    this.showToast('导入失败：' + (e && e.message ? e.message : e));
+                }
+            });
+        };
+        reader.onerror = () => this.showToast('读取文件失败');
+        reader.readAsText(file);
+    }
+
+    /** 合并追加整套皮肤预设：以「名称+配色+故障+眼色」为去重键，跳过完全一致项。返回新增数量 */
+    mergePresets(incoming) {
+        const existing = getPresets();
+        const seen = new Set(existing.map(p => this._presetKey(p)));
+        let added = 0;
+        for (const p of incoming) {
+            const k = this._presetKey(p);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            existing.push(p);
+            added++;
+        }
+        savePresets(existing);
+        return added;
+    }
+
+    /** 合并追加偏好色：按 id 去重（无 id 的按内容），跳过已存在项。返回新增数量 */
+    mergeLibrary(incoming) {
+        const existing = loadLibrary();
+        const ids = new Set(existing.map(x => x.id).filter(Boolean));
+        let added = 0;
+        for (const item of incoming) {
+            if (item.id && ids.has(item.id)) continue;
+            ids.add(item.id);
+            existing.unshift(item);
+            added++;
+        }
+        saveLibrary(existing);
+        return added;
+    }
+
+    /** 皮肤预设去重键（无 id 字段，按内容拼） */
+    _presetKey(p) {
+        try {
+            return (p.name || '') + '|' + JSON.stringify(p.colors || {}) + '|' +
+                JSON.stringify(p.glitchChannels || null) + '|' + (p.eyeColor || '');
+        } catch { return JSON.stringify(p); }
+    }
+
+    /** 通用确认弹窗（复用重命名弹窗样式）；onOk 为确认回调 */
+    openConfirm(title, text, onOk) {
+        const dlg = document.getElementById('confirmDialog');
+        const bd = document.getElementById('confirmBackdrop');
+        const tt = document.getElementById('confirmDialogTitle');
+        const tx = document.getElementById('confirmDialogText');
+        if (!dlg || !bd) { if (window.confirm(text)) onOk(); return; } // 兜底：DOM 缺失时用原生
+        tt.textContent = title || '确认';
+        tx.textContent = text || '';
+        this._confirmOk = onOk;
+        bd.style.display = 'block';
+        dlg.style.display = 'flex';
+    }
+
+    closeConfirm() {
+        const dlg = document.getElementById('confirmDialog');
+        const bd = document.getElementById('confirmBackdrop');
+        if (dlg) dlg.style.display = 'none';
+        if (bd) bd.style.display = 'none';
+        this._confirmOk = null;
+    }
+
+    _copyToClipboard(text, okMsg) {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(() => this.showToast(okMsg), () => this._copyFallback(text, okMsg));
+            } else { this._copyFallback(text, okMsg); }
+        } catch { this._copyFallback(text, okMsg); }
+    }
+
+    _copyFallback(text, okMsg) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; ta.style.top = '-1000px';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            this.showToast(okMsg);
+        } catch { this.showToast('复制失败，请手动复制：' + text); }
+    }
+
     initDOMElements() {
         this.el = {};
-        const ids = ['dinosaurSelectTrigger', 'dinosaurSelectPanel', 'patternTypeSelect', 'patternScaleSelect', 'varSlider', 'varValue', 'presetSchemeTrigger', 'presetSchemePanel', 'presetSchemeSearch', 'officialSchemeSelect', 'colorGrid', 'skinCodeDisplay', 'cnreCodeDisplay', 'nyorCodeDisplay', 'toolCodeDisplay', 'solidColorHex', 'gradHex1', 'gradHex2', 'gradSteps', 'twoColorGradientResults', 'presetList', 'presetListWrapper', 'presetResizeHandle', 'presetSearchInput', 'presetGlitchFilter', 'presetNameInput', 'importCodeInput', 'genderMaleBtn', 'genderFemaleBtn', 'eyeColorHex', 'qualitySelect', 'ageStageSlider', 'ageStageLabel', 'ageStageRow', 'featherAlphaSlider', 'featherAlphaValue', 'featherAlphaRow'];
+        const ids = ['dinosaurSelectTrigger', 'dinosaurSelectPanel', 'patternTypeSelect', 'patternScaleSelect', 'varSlider', 'varValue', 'presetSchemeTrigger', 'presetSchemePanel', 'presetSchemeSearch', 'officialSchemeSelect', 'colorGrid', 'skinCodeDisplay', 'cnreCodeDisplay', 'nyorCodeDisplay', 'toolCodeDisplay', 'solidColorHex', 'gradHex1', 'gradHex2', 'gradSteps', 'twoColorGradientResults', 'presetList', 'presetListWrapper', 'presetResizeHandle', 'presetSearchInput', 'presetGlitchFilter', 'presetNameInput', 'presetDescInput', 'importCodeInput', 'genderMaleBtn', 'genderFemaleBtn', 'eyeColorHex', 'qualitySelect', 'ageStageSlider', 'ageStageLabel', 'ageStageRow', 'featherAlphaSlider', 'featherAlphaValue', 'featherAlphaRow'];
         ids.forEach(id => { this.el[id] = document.getElementById(id); });
     }
 
@@ -261,14 +837,18 @@ export class UIManager {
         this.updateSkinCode();
         this.renderPresets();
         this.renderHistory();
+        this.renderFavorites();
+        this.initFavoriteDropZone();
+        this.initCollapsibles();
         this.bindEvents();
         this.initPanelResizers();
+        initFloatingPanels();
         this.updateThemeIcon();
         this.updateGenderUI();
         setTimeout(() => this.initPreview(), 100);
     }
 
-    /** 面板拖拽调宽（v0.5.9.13）：左右面板边缘可拖拽调整宽度并持久化 */
+    /** 面板拖拽调宽与折叠（v0.6.0.1）：左右面板边缘可拖拽调整宽度，点击箭头可折叠/展开 */
     initPanelResizers() {
         const container = document.getElementById('app-container');
         const leftPanel = document.getElementById('left-panel');
@@ -279,6 +859,7 @@ export class UIManager {
 
         const MIN = 220;
         const MAX_FRAC = 0.55;
+        const COLLAPSED_W = 28;
 
         const applyWidth = (side, w) => {
             w = Math.max(MIN, Math.min(w, window.innerWidth * MAX_FRAC));
@@ -289,22 +870,83 @@ export class UIManager {
             else container.style.removeProperty('--left-panel-w');
             if (rightPanel && this._rightPanelW != null) container.style.setProperty('--right-panel-w', this._rightPanelW + 'px');
             else if (rightPanel) container.style.removeProperty('--right-panel-w');
-            const lw = this._leftPanelW != null ? this._leftPanelW : leftPanel.offsetWidth;
-            const rw = this._rightPanelW != null ? this._rightPanelW : (rightPanel ? rightPanel.offsetWidth : null);
-            leftResizer.style.left = lw + 'px';
-            if (rightPanel && rightResizer) rightResizer.style.right = (rw != null ? rw : rightPanel.offsetWidth) + 'px';
+            this._updateResizerPositions();
         };
 
-        // 初始化位置：有保存值则应用，否则让手柄跟随当前 grid 实际宽度
-        if (this._leftPanelW != null) applyWidth('left', this._leftPanelW);
-        else leftResizer.style.left = leftPanel.offsetWidth + 'px';
-        if (rightPanel && rightResizer) {
-            if (this._rightPanelW != null) applyWidth('right', this._rightPanelW);
-            else rightResizer.style.right = rightPanel.offsetWidth + 'px';
-        }
+        this._updateResizerPositions = () => {
+            if (this._leftPanelCollapsed) {
+                leftResizer.style.left = '0px';
+            } else {
+                const lw = this._leftPanelW != null ? this._leftPanelW : leftPanel.offsetWidth;
+                leftResizer.style.left = lw + 'px';
+            }
+            if (rightPanel && rightResizer) {
+                if (this._rightPanelCollapsed) {
+                    rightResizer.style.right = '0px';
+                } else {
+                    const rw = this._rightPanelW != null ? this._rightPanelW : (rightPanel ? rightPanel.offsetWidth : null);
+                    rightResizer.style.right = (rw != null ? rw : rightPanel.offsetWidth) + 'px';
+                }
+            }
+        };
+
+        const setCollapsed = (side, collapsed) => {
+            if (side === 'left') {
+                this._leftPanelCollapsed = !!collapsed;
+                container.classList.toggle('left-collapsed', this._leftPanelCollapsed);
+                if (this._leftPanelCollapsed) container.style.setProperty('--left-panel-w', COLLAPSED_W + 'px');
+                else if (this._leftPanelW != null) container.style.setProperty('--left-panel-w', this._leftPanelW + 'px');
+                else container.style.removeProperty('--left-panel-w');
+            } else {
+                this._rightPanelCollapsed = !!collapsed;
+                container.classList.toggle('right-collapsed', this._rightPanelCollapsed);
+                if (this._rightPanelCollapsed) container.style.setProperty('--right-panel-w', COLLAPSED_W + 'px');
+                else if (this._rightPanelW != null) container.style.setProperty('--right-panel-w', this._rightPanelW + 'px');
+                else container.style.removeProperty('--right-panel-w');
+            }
+            this._updateResizerPositions();
+            this._updateCollapseIcons();
+            this.savePreferences();
+            requestAnimationFrame(() => { if (this.preview) this.preview.onResize(); });
+        };
+
+        this._updateCollapseIcons = () => {
+            const leftHandle = leftResizer?.querySelector('.panel-collapse-handle');
+            const rightHandle = rightResizer?.querySelector('.panel-collapse-handle');
+            if (leftHandle) {
+                leftHandle.title = this._leftPanelCollapsed ? '展开左侧面板' : '收起左侧面板';
+                leftHandle.querySelector('i').className = this._leftPanelCollapsed
+                    ? 'icon ico-arrow-left sz10 rot-right'
+                    : 'icon ico-arrow-left sz10';
+            }
+            if (rightHandle) {
+                rightHandle.title = this._rightPanelCollapsed ? '展开右侧面板' : '收起右侧面板';
+                rightHandle.querySelector('i').className = this._rightPanelCollapsed
+                    ? 'icon ico-arrow-left sz10'
+                    : 'icon ico-arrow-left sz10 rot-right';
+            }
+        };
+
+        const bindCollapse = (handle, side) => {
+            if (!handle) return;
+            handle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const collapsed = side === 'left' ? this._leftPanelCollapsed : this._rightPanelCollapsed;
+                setCollapsed(side, !collapsed);
+            });
+            // 点击手柄时不触发 resizer 拖拽
+            handle.addEventListener('mousedown', (e) => e.stopPropagation());
+        };
+        bindCollapse(leftResizer.querySelector('.panel-collapse-handle'), 'left');
+        bindCollapse(rightResizer?.querySelector('.panel-collapse-handle'), 'right');
 
         const bindResize = (resizer, side) => {
             resizer.addEventListener('mousedown', (e) => {
+                // 如果当前处于折叠状态，拖拽即视为展开
+                if ((side === 'left' && this._leftPanelCollapsed) || (side === 'right' && this._rightPanelCollapsed)) {
+                    setCollapsed(side, false);
+                }
                 e.preventDefault();
                 resizer.classList.add('dragging');
                 const startX = e.clientX;
@@ -330,14 +972,21 @@ export class UIManager {
         bindResize(leftResizer, 'left');
         if (rightPanel && rightResizer) bindResize(rightResizer, 'right');
 
+        // 初始化：应用持久化状态
+        setCollapsed('left', this._leftPanelCollapsed);
+        setCollapsed('right', this._rightPanelCollapsed);
+
         // 窗口缩放时：有保存值则 clamp 应用，否则让手柄跟随 grid 实际宽度
         window.addEventListener('resize', () => {
-            if (this._leftPanelW != null) applyWidth('left', this._leftPanelW);
-            else leftResizer.style.left = leftPanel.offsetWidth + 'px';
-            if (rightPanel && rightResizer) {
+            if (!this._leftPanelCollapsed) {
+                if (this._leftPanelW != null) applyWidth('left', this._leftPanelW);
+                else leftResizer.style.left = leftPanel.offsetWidth + 'px';
+            }
+            if (rightPanel && rightResizer && !this._rightPanelCollapsed) {
                 if (this._rightPanelW != null) applyWidth('right', this._rightPanelW);
                 else rightResizer.style.right = rightPanel.offsetWidth + 'px';
             }
+            this._updateResizerPositions();
         });
     }
 
@@ -771,36 +1420,9 @@ export class UIManager {
                 const data = JSON.parse(e.dataTransfer.getData('text/plain'));
                 if (data.type === 'color') {
                     const hex = data.hex;
-                    const hasGlitch = !!data.glitch;
-                    if (targetPartId === 'eye') {
-                        if (this.isLocked('eye')) { this.showToast('眼部已锁定，无法拖放'); return; }
-                        if (hasGlitch) {
-                            this.glitchBackup['eye'] = this.eyeColor || 'FFFFFF';
-                            this.eyeColor = hex;
-                            this.glitchChannels['eyes'] = { ...data.glitch.channels };
-                            this.glitchMode['eyes'] = data.glitch.mode || 'neg';
-                            this.refreshChannelUI(); this.onColorsChanged();
-                            this.showToast('已应用故障颜色到眼部');
-                        } else {
-                            this.handleEyeColorChange(hex); this.updateEyeUI(); this.showToast(`已应用颜色到眼部`);
-                        }
-                        return;
-                    }
+                    if (!hex) return;
                     if (targetPartId === 'solid') { this.applySolidColor('#' + hex); return; }
-                    if (targetPartId && hex) {
-                        if (this.isLocked(targetPartId)) { this.showToast(`「${targetLabel || targetPartId}」已锁定，无法拖放`); return; }
-                        if (hasGlitch) {
-                            this.glitchBackup[targetPartId] = this.currentColors[targetPartId];
-                            this.currentColors[targetPartId] = hex;
-                            const cnreId = colorKeyToCnreId(targetPartId);
-                            this.glitchChannels[cnreId] = { ...data.glitch.channels };
-                            this.glitchMode[cnreId] = data.glitch.mode || 'neg';
-                            this.refreshChannelUI(); this.onColorsChanged(); this.addToHistory(hex);
-                            this.showToast(`已应用故障颜色到 ${targetLabel || targetPartId}`);
-                        } else {
-                            this.handleColorChange(targetPartId, hex); this.updateAllInputs(); this.onColorsChanged(); this.addToHistory(hex); this.showToast(`已应用颜色到 ${targetLabel || targetPartId}`);
-                        }
-                    }
+                    this.applyColorPayload(targetPartId, data);
                 }
             } catch (err) { console.warn('拖拽解析失败', err); }
         });
@@ -831,7 +1453,7 @@ export class UIManager {
     /** 创建故障通道控制 + 可选左侧操作按钮。
      *  返回一个「操作行」片段：左侧放 reset / invert 等通用按钮（可选），右侧放故障按钮；
      *  下一行是 raw R/G/B 行，仅在故障态显示。
-     *  故障按钮：闪电=反向故障（负/黑斑），星星=正向故障（正/白斑），荧光/反色荧光。 */
+     *  故障按钮：闪电=反向故障（负/黑斑），星星=正向故障（正/白斑），sparkle=荧光（伪 HDR 准确色相），水滴=反色荧光，网格=柔和荧光。 */
     createGlitchRawRow(key, extraLeftButtons = []) {
         const frag = document.createDocumentFragment();
 
@@ -864,15 +1486,15 @@ export class UIManager {
         const fluorBtn = document.createElement('button');
         fluorBtn.type = 'button';
         fluorBtn.className = 'tool-btn glitch-btn glitch-btn-fluor';
-        fluorBtn.title = '荧光故障：自动匹配最近高饱和色后再套用（主导通道正、其余负 → 鲜艳荧光色，而非黑/白斑）；再次点击解除';
+        fluorBtn.title = '荧光故障：将当前颜色转为荧光色 再次点击解除';
         fluorBtn.innerHTML = '<i class="icon ico-fluorescent sz16"></i>';
-        fluorBtn.addEventListener('click', () => this.applyFluorescentGlitch(key));
+        fluorBtn.addEventListener('click', () => this.toggleGlitch(key, 'fluor'));
         row.appendChild(fluorBtn);
 
         const invfluorBtn = document.createElement('button');
         invfluorBtn.type = 'button';
         invfluorBtn.className = 'tool-btn glitch-btn glitch-btn-invfluor';
-        invfluorBtn.title = '反色荧光故障：自动匹配最近高饱和色后再套用（主导通道负、其余正 → 鲜艳荧光反色，如青 → 荧光深红）；再次点击解除';
+        invfluorBtn.title = '反色荧光故障，再次点击解除';
         invfluorBtn.innerHTML = '<i class="icon ico-invert-color sz16"></i>';
         invfluorBtn.addEventListener('click', () => this.applyInvertedFluorescentGlitch(key));
         row.appendChild(invfluorBtn);
@@ -1136,6 +1758,7 @@ export class UIManager {
     /** 切换故障态：mode ∈ 'neg' | 'pos' | 'fluor' | 'invfluor'；点击已激活的按钮则关闭。
      *  各模式为基础色算出的特定 raw 模式，切换模式即按新模式重算（始终保留 base 颜色）。 */
     toggleGlitch(key, mode) {
+        this._lastEditedKey = key;
         const cnreId = colorKeyToCnreId(key);
         const active = this.isGlitched(key) ? this.classifyGlitch(this.glitchChannels[cnreId], key) : 'off';
         if (active === mode) {
@@ -1148,7 +1771,7 @@ export class UIManager {
         if (!this.glitchBackup[key]) this.glitchBackup[key] = cur || (key === 'eye' ? 'FFFFFF' : '000000');
         this.glitchChannels[cnreId] = this.computeGlitchChannelsForMode(key, mode);
         this.glitchMode[cnreId] = mode;
-        // 各模式预览显示色（与游戏内一致）：neg→黑；pos→白；fluor/invfluor→高饱和（invfluor 取互补色相）。
+        // 各模式预览显示色（与游戏内一致）：neg→黑；pos→白；fluor→满饱和高明度同色相霓虹（伪 HDR 显示）；invfluor→高饱和互补色相。
         // 显示色只进 glitchDisplayColors，不改变 currentColors/eyeColor，HEX 输入框保持 base。
         const invertHex = (hex) => {
             const h = (hex || '000000').replace('#', '');
@@ -1162,13 +1785,17 @@ export class UIManager {
             displayHex = '#000000';
         } else if (mode === 'pos') {
             displayHex = '#FFFFFF';
-        } else if (mode === 'fluor' || mode === 'invfluor') {
+        } else if (mode === 'fluor') {
+            // 荧光：主导通道越界、其余保持 base 合法值 → 伪 HDR 显示真实色相
+            displayHex = rawLinearToHex(this.glitchChannels[cnreId]);
+        } else if (mode === 'invfluor') {
+            // 反色荧光：自动匹配最近高饱和色后取互补色相（近白→黑斑 / 近黑→白斑）
             ach = this._isAchromatic(cur);
             if (ach) {
-                displayHex = ((ach === 'white') === (mode === 'fluor')) ? '#FFFFFF' : '#000000';
+                displayHex = (ach === 'white') ? '#000000' : '#FFFFFF';
             } else {
                 const sat = boostSaturationToHex(cur, 1);
-                displayHex = (mode === 'invfluor') ? invertHex(sat) : sat;
+                displayHex = invertHex(sat);
             }
         }
         if (displayHex) this.glitchDisplayColors[cnreId] = displayHex;
@@ -1176,16 +1803,14 @@ export class UIManager {
         if (this.preview) this.preview.setGlitchModes(this.glitchMode, this.glitchDisplayColors);
         const hue = rawLinearToHex(this.glitchChannels[cnreId]);
         const tip = {
-            neg: `反向故障（导出为负值 → 黑斑，预览保留 base 色 ${cur}）`,
-            pos: `正向故障（导出为正值 → 白斑，仍带故障特效，预览保留 base 色 ${cur}）`,
-            fluor: ach
-                ? `荧光故障：近${ach === 'white' ? '白' : '黑'}颜色直接出${ach === 'white' ? '白' : '黑'}斑（预览已同步为 ${displayHex}）`
-                : `荧光故障：自动匹配高饱和色 ${displayHex} → 故障色相 ${hue}（预览已同步为高饱和色）`,
+            neg: `反向故障`,
+            pos: `正向故障`,
+            fluor: `荧光故障`,
             invfluor: ach
-                ? `反色荧光故障：近${ach === 'white' ? '白' : '黑'}颜色直接出${ach === 'white' ? '黑' : '白'}斑（预览已同步为 ${displayHex}）`
-                : `反色荧光故障：自动匹配高饱和色 ${displayHex} → 故障色相 ${hue}（预览已同步为高饱和色）`
+                ? `反色荧光故障`
+                : `反色荧光故障`
         }[mode];
-        this.showToast(`已对「${key}」应用${tip}`);
+        this.showToast(`已对「${key}」应用${tip}！`);
     }
 
     /** 判定某通道当前 raw 值对应的 UI 模式。
@@ -1196,6 +1821,7 @@ export class UIManager {
         if (!ch) return 'off';
         const cnreId = colorKeyToCnreId(key);
         const stored = this.glitchMode[cnreId];
+        if (stored === 'raw') return 'custom'; // 导入/配方自定义原始值，不点亮任何预设按钮（显示色由伪 HDR 渲染）
         if (stored && ['neg', 'pos', 'fluor', 'invfluor'].includes(stored)) {
             const expected = this.computeGlitchChannelsForMode(key, stored);
             const tol = 1e-3;
@@ -1208,22 +1834,19 @@ export class UIManager {
         return this._classifyGeneric(ch);
     }
 
-    /** 纯结构判定（旧逻辑）：按正负/主导数量识别 neg/pos/fluor/invfluor/custom。 */
+    /** 纯结构判定（v0.6.0 改用 analyzeGlitch 的真实家族）：
+     *  white=三通道全等且为正；black=三通道全等且为负；
+     *  saturated=≥2 通道巨量且相近（如 R=B=999 品红）→ 全正归 fluor（同色相荧光），含负通道归 invfluor（反色荧光）；
+     *  其余单主导通道越界 → fluor 按钮。 */
     _classifyGeneric(ch) {
-        let posCount = 0, negCount = 0;
-        ['r', 'g', 'b'].forEach(c => { if (ch[c] > 0) posCount++; else if (ch[c] < 0) negCount++; });
-        const posDom = ['r', 'g', 'b'].filter(c => ch[c] > 1000).length;
-        const negDom = ['r', 'g', 'b'].filter(c => ch[c] < -1000).length;
-        if (posCount === 3) return 'pos';
-        if (negCount === 3) return 'neg';
-        // 荧光：正值恰好是主导正通道，其余为负
-        if (posDom >= 1 && posCount === posDom && negCount === (3 - posDom)) return 'fluor';
-        // 反色荧光：负值恰好是主导负通道，其余为正
-        if (negDom >= 1 && negCount === negDom && posCount === (3 - negDom)) return 'invfluor';
-        return 'custom';
+        const a = analyzeGlitch(ch);
+        if (a.family === 'white') return 'pos';
+        if (a.family === 'black') return 'neg';
+        if (a.family === 'saturated') return a.negCount > 0 ? 'invfluor' : 'fluor';
+        return 'fluor';
     }
 
-    /** 判断颜色是否「近白 / 近黑 / 灰」等低彩度，避免 fluor/invfluor 把这类颜色强制成突兀的纯色相。
+    /** 判断颜色是否「近白 / 近黑 / 灰」等低彩度，避免 invfluor 把这类颜色强制成突兀的纯色相。
      *  返回 'white'（偏白或浅灰，应出白斑）、'black'（偏黑或深灰，应出黑斑）或 null（彩色，走正常高饱和逻辑）。
      *  规则：灰（彩度极小）按明度分白/黑；非灰则看是否偏白（最暗通道也很亮）或偏黑（最亮通道也很暗）。 */
     _isAchromatic(hex) {
@@ -1242,7 +1865,7 @@ export class UIManager {
     }
 
     /** 按模式从某部位当前 base 色算出故障 raw 通道值。
-     *  neg/pos 用官方公式；fluor/invfluor 先自动匹配最接近的高饱和颜色（保留色相），
+     *  neg/pos 用官方公式；invfluor 先自动匹配最接近的高饱和颜色（保留色相），
      *  再用「主导通道符号规则」决定各分量正负——保证任意饱和度都得到鲜艳荧光色相而非白/黑。
      *  例外：近白/近黑/灰等低彩度颜色不参与高饱和匹配（否则主导通道规会把次通道钳成 0，
      *  产生突兀纯色相，如米色 #FFF2D6 → 红），直接出白/黑斑（与 neg/pos 一致）。 */
@@ -1251,19 +1874,37 @@ export class UIManager {
         const hex = cur || (key === 'eye' ? 'FFFFFF' : '000000');
         if (mode === 'neg') return computeGlitchFromSrgbHex(hex, false);
         if (mode === 'pos') return computeGlitchFromSrgbHex(hex, true);
+        // 荧光故障（v0.6.0.9）：仅把「最高通道」拉到 10（越界），其余通道保持 base 线性值不动；
+        // 并列通道（两/三通道同为最大）同置 10。次通道不会被推到 >1（如 #FF9D00 不再泛黄）。
+        if (mode === 'fluor') {
+            const baseHex = String(hex || '').replace('#', '');
+            const rgb = GradGen.hexToRgb(baseHex); // 0-255 sRGB
+            const lin = srgbFloat3ToLinear({ r: rgb.r / 255, g: rgb.g / 255, b: rgb.b / 255 });
+            const mx = Math.max(lin.r, lin.g, lin.b);
+            const eps = 1e-4;
+            if (mx < 1e-6) {
+                // 近黑：无通道可放大，回退为全通道 10（白霓虹，仍是越界故障）
+                return { r: 10, g: 10, b: 10 };
+            }
+            const out = { r: lin.r, g: lin.g, b: lin.b }; // 其余通道保持 base 不动
+            if (Math.abs(lin.r - mx) < eps) out.r = 10;
+            if (Math.abs(lin.g - mx) < eps) out.g = 10;
+            if (Math.abs(lin.b - mx) < eps) out.b = 10;
+            return { r: xs(out.r), g: xs(out.g), b: xs(out.b) };
+        }
         // 近白/近黑/灰：直接出白/黑斑，不再套用高饱和匹配
         const ach = this._isAchromatic(hex);
         if (ach) {
-            // fluor：近白→白斑(正) / 近黑→黑斑(负)；invfluor 取反
-            const positive = ach === 'white' ? (mode === 'fluor') : (mode === 'invfluor');
+            // invfluor：近白→黑斑、近黑→白斑（反色）
+            const positive = ach === 'black';
             return computeGlitchFromSrgbHex(hex, positive);
         }
-        // fluor / invfluor：先拉满饱和度，避免低饱和彩色三通道同号 → 变白
+        // invfluor：先拉满饱和度，避免低饱和彩色三通道同号 → 变白
         const boosted = boostSaturationToHex(hex, 1);
         const base = computeGlitchFromSrgbHex(boosted, true); // 正向量级
         // 主导通道（线性最大，含并列）取 primary 符号，其余取 opposite 符号
-        const primary = mode === 'fluor' ? 1 : -1;   // fluor：主导正、其余负
-        const opposite = -primary;                    // invfluor：主导负、其余正
+        const primary = -1;                           // invfluor：主导负、其余正
+        const opposite = -primary;                    // 其余正
         const maxVal = Math.max(base.r, base.g, base.b);
         const eps = 1e-3;
         ['r', 'g', 'b'].forEach(c => {
@@ -1284,27 +1925,25 @@ export class UIManager {
         this.undoRedo.saveState(this.snapshot());
     }
 
-    /** 一键荧光故障：自动匹配最近高饱和色后套用「主导正/其余负」规则 → 鲜艳荧光色（而非黑/白斑）。
-     *  再次点击同一按钮则解除故障。 */
-    applyFluorescentGlitch(key) {
-        this.toggleGlitch(key, 'fluor');
-    }
-
     /** 一键反色荧光故障：自动匹配最近高饱和色后套用「主导负/其余正」规则 → 鲜艳荧光反色（如青 → 荧光深红）。
      *  再次点击同一按钮则解除故障；预览同步为高饱和色相。 */
     applyInvertedFluorescentGlitch(key) {
         this.toggleGlitch(key, 'invfluor');
     }
 
+
+
+
+
     /** 故障态下，base 颜色（HEX）变化时实时同步 raw 值。
-     *  fluor/invfluor 模式按新模式重新推导（含高饱和匹配 + 主导通道符号）；
+     *  invfluor 模式按新模式重新推导（含高饱和匹配 + 主导通道符号）；
      *  neg/pos/自定义 模式则保留各分量当前符号、按新 base 更新量级。 */
     syncGlitchRawFromBase(key) {
         const cnreId = colorKeyToCnreId(key);
         const ch = this.glitchChannels[cnreId];
         if (!ch) return;
         const mode = this.glitchMode[cnreId];
-        if (mode === 'fluor' || mode === 'invfluor') {
+        if (mode === 'invfluor' || mode === 'fluor') {
             this.glitchChannels[cnreId] = this.computeGlitchChannelsForMode(key, mode);
             return;
         }
@@ -1434,7 +2073,7 @@ export class UIManager {
         invertBtn.addEventListener('click', (e) => { e.stopPropagation(); this.invertAndApplyPart(part.id); });
 
         // ---- 操作行（reset/invert + 故障按钮） + raw R/G/B 行 ----
-        group.appendChild(this.createGlitchRawRow(part.id, [resetBtn, invertBtn]));
+        group.appendChild(this.createGlitchRawRow(part.id, [resetBtn, invertBtn, this.createFavoriteButton(part.id)]));
 
         // ---- 材质微调：光滑度 / 金属度两行（嵌在该颜色部位下方）----
         if (MT_PART_IDS.includes(part.id)) group.appendChild(this.createMaterialTuningRows(part.id));
@@ -1451,6 +2090,7 @@ export class UIManager {
 
     /** 通用：用户通过 swatch/hex 修改某部位颜色。故障态下同步 raw 值（保留符号）并刷新显示。 */
     handleColorChange(key, hex) {
+        this._lastEditedKey = key;
         this.currentColors[key] = hex;
         if (this.isGlitched(key)) {
             this.glitchBackup[key] = hex;
@@ -1458,6 +2098,17 @@ export class UIManager {
             this.refreshChannelUI();
             this.updateSkinCode();
         }
+    }
+
+    /** 生成「存为偏好色」按钮（v0.5.9.80）：抓取当前通道 base + 故障，存入偏好库 */
+    createFavoriteButton(key) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'icon-btn part-fav-btn';
+        btn.title = '存为偏好色（支持故障色，可随时套用 / 可复制分享码）';
+        btn.innerHTML = '<i class="icon ico-star sz14"></i>';
+        btn.addEventListener('click', (e) => { e.stopPropagation(); this.saveCurrentColorAsFavorite(key); });
+        return btn;
     }
 
     /** 生成一个吸色（取色）按钮 (v0.5.9.25) */
@@ -1562,7 +2213,7 @@ export class UIManager {
         eyeInvertBtn.addEventListener('click', (e) => { e.stopPropagation(); this.invertAndApplyPart('eye'); });
 
         // 操作行 + raw R/G/B 行
-        group.appendChild(this.createGlitchRawRow('eye', [eyeResetBtn, eyeInvertBtn]));
+        group.appendChild(this.createGlitchRawRow('eye', [eyeResetBtn, eyeInvertBtn, this.createFavoriteButton('eye')]));
 
         swatch.addEventListener('input', (e) => { const hex = normalizeHex(e.target.value); hexInput.value = '#' + hex; swatch.setAttribute('data-color', hex); this.handleEyeColorChange(hex); this.savePreferences(); });
 
@@ -1820,7 +2471,7 @@ export class UIManager {
         invertBtn.title = '解锁并反色特殊区域';
         invertBtn.innerHTML = '<i class="icon ico-invert-color sz14"></i>';
         invertBtn.addEventListener('click', (e) => { e.stopPropagation(); this._specialForced = true; this.invertAndApplyPart('special'); this.buildColorInputs(); });
-        group.appendChild(this.createGlitchRawRow('special', [resetBtn, invertBtn]));
+        group.appendChild(this.createGlitchRawRow('special', [resetBtn, invertBtn, this.createFavoriteButton('special')]));
 
         group.addEventListener('click', (e) => {
             if (e.target.closest('.lock-dot')) return;
@@ -2045,7 +2696,7 @@ export class UIManager {
 
     /**
      * 生成故障皮肤：基于当前配色，把通道打成越界值（游戏内出故障特效）。
-     * @param {string} mode 'neg'(负/黑斑) | 'pos'(正/白斑) | 'fluor'(荧光保留色相) | 'invfluor'(反色荧光)
+     * @param {string} mode 'neg'(负/黑斑) | 'pos'(正/白斑) | 'fluor'(荧光，伪 HDR 准确色相) | 'invfluor'(反色荧光)
      * @param {string} target 'random'(随机 5 个通道) | 'all'(所有区域)
      */
     generateGlitch(mode = 'neg', target = 'random') {
@@ -2081,11 +2732,11 @@ export class UIManager {
             this.glitchBackup[key] = cur || (key === 'eye' ? 'FFFFFF' : '000000');
             this.glitchChannels[id] = this.computeGlitchChannelsForMode(key, mode);
             this.glitchMode[id] = mode;
-            // fluor / invfluor：预览同步（近白/近黑/灰 → 白/黑斑；彩色 → 高饱和色）
-            if (mode === 'fluor' || mode === 'invfluor') {
+            // invfluor：预览同步（近白/近黑/灰 → 黑/白斑；彩色 → 高饱和互补色相）
+            if (mode === 'invfluor') {
                 const ach = this._isAchromatic(cur);
                 const displayHex = ach
-                    ? (((ach === 'white') === (mode === 'fluor')) ? '#FFFFFF' : '#000000')
+                    ? ((ach === 'white') ? '#000000' : '#FFFFFF')
                     : boostSaturationToHex(cur, 1);
                 if (key === 'eye') { this.eyeColor = displayHex; this.updateEyeUI(); if (this.preview) this.preview.setEyeColor(this.eyeColor); }
                 else { this.currentColors[key] = displayHex; }
@@ -2099,12 +2750,14 @@ export class UIManager {
         const n = Object.keys(this.glitchChannels).length;
         this.refreshChannelUI();
         this.onColorsChanged(); // updateSkinCode + undoRedo + preview.updateColors（不重载模型）
-        const label = { neg: '负值（黑斑）', pos: '正值（白斑）', fluor: '荧光（保留色相）', invfluor: '反色荧光（互补色相）' }[mode] || mode;
+        const label = { neg: '负值（黑斑）', pos: '正值（白斑）', fluor: '荧光（伪 HDR 准确色相）', invfluor: '反色荧光（互补色相）' }[mode] || mode;
         const hasLocked = Object.keys(lockedGlitch).length > 0;
         const scope = target === 'all' ? '所有区域' : `随机 ${glitchIds.length} 个通道`;
-        const tail = (mode === 'fluor' || mode === 'invfluor')
-            ? ' — 预览已同步为高饱和色相'
-            : ' — base 颜色保留，故障特效仅在游戏内显示';
+        const tail = (mode === 'invfluor')
+            ? ' — 预览已同步为高饱和互补色相'
+            : (mode === 'fluor')
+                ? ' — 预览已同步为伪 HDR 柔和色相'
+                : ' — base 颜色保留，故障特效仅在游戏内显示';
         const lockTip = hasLocked ? '（锁定部位已跳过）' : '';
         this.showToast(`已生成${scope}故障：${label}${lockTip}${tail}`);
     }
@@ -2116,14 +2769,14 @@ export class UIManager {
         const n = Object.keys(this.glitchChannels || {}).length;
         if (n > 0) {
             el.style.display = 'block'; // CSS 默认 display:none，此处显式覆盖
-            el.innerHTML = `<i class="icon ico-glitch sz12"></i> 含故障通道 (${n})：base 颜色保留，越界 raw 仅在导出/游戏内生效；各分量正负决定故障色相——同号→黑/白斑，异号→鲜艳荧光色（如荧光红/青）`;
+            el.innerHTML = `<i class="icon ico-glitch sz12"></i> 含${n}个故障区域，具体效果请以游戏内为准！`;
         } else {
             el.style.display = 'none';
         }
     }
 
     /** 根据 base 色与故障模式计算各故障通道的「预览显示色」：
-     *  neg(反向)→黑；pos(正向)→白+自发光；fluor(荧光)→高饱和色+自发光；invfluor(反色)→互补高饱和色+自发光。
+     *  neg(反向)→黑；pos(正向)→白+自发光；invfluor(反色)→互补高饱和色+自发光；fluor/raw→伪 HDR 渲染真实通道。
      *  显示色仅存入 glitchDisplayColors 传给 preview，绝不污染 currentColors / eyeColor（HEX 输入框保持 base）。 */
     _applyGlitchDisplayColors() {
         const invertHex = (hex) => {
@@ -2143,13 +2796,16 @@ export class UIManager {
                 displayHex = '#000000';
             } else if (mode === 'pos') {
                 displayHex = '#FFFFFF';
-            } else if (mode === 'fluor' || mode === 'invfluor') {
+            } else if (mode === 'fluor' || mode === 'raw') {
+                // 荧光 / 自定义原始值：直接按伪 HDR 渲染真实通道比值（保留色相与明度）
+                displayHex = rawLinearToHex(this.glitchChannels[id]);
+            } else if (mode === 'invfluor') {
                 const ach = this._isAchromatic(base);
                 if (ach) {
-                    displayHex = ((ach === 'white') === (mode === 'fluor')) ? '#FFFFFF' : '#000000';
+                    displayHex = (ach === 'white') ? '#000000' : '#FFFFFF';
                 } else {
                     const sat = boostSaturationToHex(base, 1);
-                    displayHex = (mode === 'invfluor') ? invertHex(sat) : sat;
+                    displayHex = invertHex(sat);
                 }
             }
             if (displayHex) this.glitchDisplayColors[id] = displayHex;
@@ -2239,7 +2895,12 @@ export class UIManager {
             for (const [id, v] of Object.entries(opts.glitchChannels)) {
                 const key = cnreIdToColorKey(id);
                 this.glitchChannels[id] = { ...v };
-                this.glitchMode[id] = (v.r > 0 || v.g > 0 || v.b > 0) ? 'pos' : 'neg';
+                // v0.6.0：按真实故障家族分类，而非「有正就当白故障」
+                const fa = analyzeGlitch(v);
+                let gmode = 'raw';
+                if (fa.family === 'white') gmode = 'pos';
+                else if (fa.family === 'black') gmode = 'neg';
+                this.glitchMode[id] = gmode;
                 this.glitchBackup[key] = key === 'eye' ? (this.eyeColor || 'FFFFFF') : (this.currentColors[key] || '000000');
             }
         } else {
@@ -2254,6 +2915,7 @@ export class UIManager {
                 }
             }
         }
+        this._applyGlitchDisplayColors(); // 为 pos/neg/fluor/raw 计算预览显示色（raw/fluor 走伪 HDR）
         this.refreshChannelUI();
         this.updateSkinCode(); this.undoRedo.saveState(this.snapshot());
         if (this.preview) this.preview.updateColors(this.currentColors);
@@ -2391,6 +3053,7 @@ export class UIManager {
     /** CNRE 皮肤 dev 原始通道编辑器解锁（标题连点 10 次 或 URL 含 ://CNREskindevtoggle 或设置开关） */
     setCnreSkinDevUnlocked(unlocked) {
         this.cnreSkinDevUnlocked = !!unlocked;
+        if (unlocked) this.cnreDevUnlocked = true; // 解锁功能同时揭示入口行；开关关掉不收回入口
         this.applyDevRawVisibility();
         this._syncCnreDevRawToggle();
         this.savePreferences();
@@ -2407,6 +3070,9 @@ export class UIManager {
     applyDevRawVisibility() {
         const on = !!this.cnreSkinDevUnlocked;
         document.body.classList.toggle('cnre-dev-raw', on);
+        // 设置入口行：仅彩蛋解锁后显示（cnreDevUnlocked）；开关切的是功能(on)，关掉不会让入口消失（同材质微调行为）
+        const devRow = document.getElementById('cnreDevRawSettingsRow');
+        if (devRow) devRow.style.display = this.cnreDevUnlocked ? 'flex' : 'none';
         // 解锁瞬间若当前无展开状态，默认展开第一个部位便于立即上手（其余保持折叠）
         if (on) {
             document.querySelectorAll('.dev-raw-editor').forEach((ed, i) => {
@@ -2450,7 +3116,7 @@ export class UIManager {
             this.glitchChannels = result.glitchChannels || {};
             this.glitchMode = result.glitchMode || {};
             this.glitchBackup = result.glitchBackup || {};
-            // 故障部位（fluor/invfluor）把显示色同步成高饱和色，使导入后 3D 预览与游戏内一致；
+            // 故障部位（invfluor）把显示色同步成高饱和互补色，使导入后 3D 预览与游戏内一致；
             // base 色已存于 glitchBackup，解除故障时还原，不影响导出（导出用越界 raw 覆盖）。
             this._applyGlitchDisplayColors();
             // 自发光：还原各部位强度 + 全局强度，并开启微调，使导入即见发光效果
@@ -2471,7 +3137,7 @@ export class UIManager {
             if (emissionApplied) this.applyMaterialTuningVisibility();
             // ★ 关键修复：工具码导入分支此前漏掉 3D 预览刷新，导致导入后模型不更新（看起来像"故障数据没存进"）
             if (this.preview) { this.preview.setEyeColor(this.eyeColor); this.preview.updateColors(this.currentColors); }
-            this.showToast('已应用工具专属皮肤码（不切换恐龙）');
+            this.showToast('工具码已导入！');
             return;
         }
         // Nyor's Overlay 码检测 (JSON 格式)
@@ -2558,13 +3224,15 @@ export class UIManager {
     renderPresets() {
         const allPresets = getPresets();
         const list = this.el.presetList; if (!list) return; list.innerHTML = '';
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
         // 过滤：搜索 + 仅故障；隐藏预设（如 devcode）不显示
         const term = (this.presetFilter.term || '').trim().toLowerCase();
         const glitchOnly = !!this.presetFilter.glitchOnly;
         const presets = allPresets.filter((preset, idx) => {
             if (preset.hidden) return false;
-            const nameMatch = !term || preset.name.toLowerCase().includes(term) || String(idx + 1).includes(term);
+            const hay = ((preset.name || '') + ' ' + (preset.description || '')).toLowerCase();
+            const nameMatch = !term || hay.includes(term) || String(idx + 1).includes(term);
             const hasGlitch = preset.glitchChannels && Object.keys(preset.glitchChannels).length > 0;
             const glitchMatch = !glitchOnly || hasGlitch;
             return nameMatch && glitchMatch;
@@ -2580,11 +3248,22 @@ export class UIManager {
             // 因为过滤后 index 变了，需找回原数组索引用于删除
             const originalIndex = allPresets.indexOf(preset);
             const hasGlitch = preset.glitchChannels && Object.keys(preset.glitchChannels).length > 0;
-            const bar = document.createElement('div'); bar.className = 'preset-bar' + (hasGlitch ? ' has-glitch' : '');
+            const bar = document.createElement('div'); bar.className = 'preset-bar' + (hasGlitch ? ' has-glitch' : '') + (preset.description ? ' has-desc' : '');
+            const top = document.createElement('div'); top.className = 'preset-bar-top';
             const dots = COLOR_PARTS.map(p => `<span class="preset-color-dot" style="background-color:#${preset.colors[p.id] || '000'};"></span>`).join('');
             const glitchIcon = hasGlitch ? `<i class="icon ico-glitch sz14 preset-glitch-icon" title="含故障通道"></i>` : '';
-            bar.innerHTML = `<span class="preset-name">${preset.name}</span>${glitchIcon}<span class="preset-colors-preview">${dots}</span><button class="btn btn-sm" data-delete="${originalIndex}" style="padding:0.2rem 0.45rem; flex-shrink:0;"><i class="icon ico-close sz14"></i></button>`;
-            bar.addEventListener('click', (e) => { if (e.target.dataset.delete !== undefined || e.target.closest('[data-delete]')) { e.stopPropagation(); const btn = e.target.dataset.delete !== undefined ? e.target : e.target.closest('[data-delete]'); deletePreset(parseInt(btn.dataset.delete)); this.renderPresets(); return; } const p = loadPreset(originalIndex); if (p) { this.applyPresetColors(p.colors, { eyeColor: p.eyeColor, glitchChannels: p.glitchChannels }); this.showToast('已加载: ' + preset.name); } });
+            top.innerHTML = `<span class="preset-name">${esc(preset.name)}</span>${glitchIcon}<span class="preset-colors-preview">${dots}</span><button class="btn btn-sm preset-del-btn" data-delete="${originalIndex}" title="删除" style="padding:0.2rem 0.45rem; flex-shrink:0;"><i class="icon ico-delete sz14"></i></button>`;
+            bar.appendChild(top);
+            if (preset.description) {
+                const desc = document.createElement('div'); desc.className = 'preset-desc'; desc.textContent = preset.description;
+                bar.appendChild(desc);
+            }
+            bar.addEventListener('click', (e) => {
+                const del = e.target.closest('[data-delete]');
+                if (del) { e.stopPropagation(); this.confirmDeletePreset(parseInt(del.dataset.delete), bar); return; }
+                const p = loadPreset(originalIndex); if (p) { this.applyPresetColors(p.colors, { eyeColor: p.eyeColor, glitchChannels: p.glitchChannels }); this.showToast('已加载: ' + preset.name); }
+            });
+            bar.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showPresetContextMenu(e, originalIndex); });
             list.appendChild(bar);
         });
     }
@@ -2860,6 +3539,19 @@ export class UIManager {
     }
 
     /**
+     * 导出当前眼睛材质贴图 (巩膜+虹膜+瞳孔, 套当前眼色) 为 PNG 并触发下载
+     */
+    exportEyeTexture() {
+        if (!this.preview) { this.showToast('预览器尚未就绪'); return; }
+        const fname = `${this.currentDino}_${this.currentPattern || 'Pattern_1'}_eye.png`;
+        if (this.preview.exportEyeTexturePNG(fname)) {
+            this.showToast(`已导出眼睛贴图: ${fname}`);
+        } else {
+            this.showToast('导出失败: 眼睛材质尚未就绪，请等待模型加载完成');
+        }
+    }
+
+    /**
      * 颜色对象批量 sRGB → 线性 (CNRE 线性码导出前自动转换; 编辑器颜色始终按 sRGB 处理)
      * @param {Object} colors - { partId: hex }
      */
@@ -2921,8 +3613,45 @@ export class UIManager {
     updateColorSpaceLabel() {
         // 标签已移除，保留空方法避免潜在调用报错
     }
-    randomGradient() { const h1 = GradGen.randomHex(); const h2 = GradGen.randomHex(); const steps = COLOR_PARTS.length; const colors = GradGen.generateGradient(h1, h2, steps); this.applyColorArray(colors); this.showToast('随机渐变配色'); }
-    randomHueShift() { const colors = GradGen.generateRandomHueShift(COLOR_PARTS.length); this.applyColorArray(colors); this.showToast('色相偏移配色'); }
+    randomGradientNear() { const colors = GradGen.generateRandomGradient(COLOR_PARTS.length, 'near'); this.applyColorArray(colors); this.showToast('随机相近范围渐变配色'); }
+    randomGradientMid() { const colors = GradGen.generateRandomGradient(COLOR_PARTS.length, 'mid'); this.applyColorArray(colors); this.showToast('随机中等范围渐变配色'); }
+    randomGradientWide() { const colors = GradGen.generateRandomGradient(COLOR_PARTS.length, 'wide'); this.applyColorArray(colors); this.showToast('随机大跨度渐变配色'); }
+
+    /** 随机故障皮肤：先随机所有未锁定部位颜色，再随机选若干通道赋予随机故障模式。 */
+    randomGlitchSkin() {
+        // 1) 随机所有未锁定/未故障部位颜色
+        COLOR_PARTS.forEach(part => {
+            if (!this.isProtected(part.id)) this.currentColors[part.id] = GradGen.randomHex();
+        });
+        // 2) 清除旧故障
+        this.glitchChannels = {};
+        this.glitchBackup = {};
+        this.glitchMode = {};
+        this.glitchDisplayColors = {};
+        // 3) 随机选 3~6 个通道（跳过锁定），赋予随机故障模式
+        const modes = ['neg', 'pos', 'invfluor'];
+        let order = Object.keys(this.currentColors).concat('eye')
+            .map(key => colorKeyToCnreId(key))
+            .filter((v, i, a) => a.indexOf(v) === i)
+            .filter(id => !this.isLocked(cnreIdToColorKey(id)));
+        for (let i = order.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [order[i], order[j]] = [order[j], order[i]];
+        }
+        const count = 3 + Math.floor(Math.random() * 4); // 3..6
+        const glitchIds = order.slice(0, Math.min(count, order.length));
+        for (const id of glitchIds) {
+            const key = cnreIdToColorKey(id);
+            const cur = key === 'eye' ? this.eyeColor : this.currentColors[key];
+            const mode = modes[Math.floor(Math.random() * modes.length)];
+            this.glitchBackup[key] = cur || (key === 'eye' ? 'FFFFFF' : '000000');
+            this.glitchChannels[id] = this.computeGlitchChannelsForMode(key, mode);
+            this.glitchMode[id] = mode;
+        }
+        this.refreshChannelUI();
+        this.onColorsChanged();
+        this.showToast(`已生成随机故障皮肤（${glitchIds.length} 个故障通道）`);
+    }
 
     bindEvents() {
         const safeBind = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
@@ -3010,7 +3739,7 @@ export class UIManager {
         
         document.getElementById('resetBtn')?.addEventListener('click', () => this.resetToCurrentSkinDefault());
         document.getElementById('refreshModelBtn')?.addEventListener('click', () => { if (this.preview) { this.preview.forceUpdateColors(this.currentColors); this.preview.setEyeColor(this.eyeColor); this.preview.onResize(); this.showToast('模型已刷新'); } else { this.showToast('模型未加载'); } });
-        document.getElementById('savePresetBtn')?.addEventListener('click', () => { const name = this.el.presetNameInput.value.trim(); const result = addPreset(name, this.currentColors, { eyeColor: this.eyeColor, glitchChannels: this.glitchChannels }); if (result.success) { this.renderPresets(); this.el.presetNameInput.value = ''; this.showToast('预设已保存'); } else { this.showToast(result.message); } });
+        document.getElementById('savePresetBtn')?.addEventListener('click', () => { const name = this.el.presetNameInput.value.trim(); const desc = (this.el.presetDescInput ? this.el.presetDescInput.value : '').trim(); const result = addPreset(name, this.currentColors, { eyeColor: this.eyeColor, glitchChannels: this.glitchChannels, description: desc }); if (result.success) { this.renderPresets(); this.el.presetNameInput.value = ''; if (this.el.presetDescInput) this.el.presetDescInput.value = ''; this.showToast('预设已保存'); } else { this.showToast(result.message); } });
         // 清空所有用户数据（预设 + 历史 + 偏好 isle_prefs_v1 + 自定义主题 + 配色延续）
         const clearAllConfirm = document.getElementById('clearAllDataConfirm');
         const showClearAllConfirm = (show) => { if (clearAllConfirm) clearAllConfirm.style.display = show ? 'flex' : 'none'; };
@@ -3093,6 +3822,7 @@ export class UIManager {
         document.getElementById('copyToolBtn')?.addEventListener('click', () => { this.copyToClipboard(this.el.toolCodeDisplay.textContent); });
         this.el.nyorCodeDisplay?.addEventListener('click', () => { const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(this.el.nyorCodeDisplay); selection.removeAllRanges(); selection.addRange(range); });
         document.getElementById('exportBakedBtn')?.addEventListener('click', () => this.exportBakedTexture());
+        document.getElementById('exportEyeBtn')?.addEventListener('click', () => this.exportEyeTexture());
         
         const themeBtn = document.getElementById('themeToggleBtn'); if (themeBtn) { themeBtn.addEventListener('click', () => { this.themeManager.toggle(); this.updateThemeIcon(); }); }
 
@@ -3136,7 +3866,7 @@ export class UIManager {
         this.applyMaterialTuningVisibility();
 
         // CNRE 皮肤 dev 原始通道编辑器：URL 含 ://CNREskindevtoggle 亦可解锁（无需连点 10 次）
-        if (location.href.indexOf('CNREskindevtoggle') !== -1) this.cnreSkinDevUnlocked = true;
+        if (location.href.indexOf('CNREskindevtoggle') !== -1) { this.cnreSkinDevUnlocked = true; this.cnreDevUnlocked = true; }
         this.applyDevRawVisibility();
         this._syncCnreDevRawToggle();
         document.getElementById('mtResetBtn')?.addEventListener('click', () => {
@@ -3181,16 +3911,20 @@ export class UIManager {
         document.getElementById('randomAllPartsBtn')?.addEventListener('click', () => this.randomAllParts());
         document.getElementById('randomGlitchNegBtn')?.addEventListener('click', () => this.generateGlitch('neg', 'random'));
         document.getElementById('randomGlitchPosBtn')?.addEventListener('click', () => this.generateGlitch('pos', 'random'));
-        document.getElementById('glitchAllNegBtn')?.addEventListener('click', () => this.generateGlitch('neg', 'all'));
-        document.getElementById('glitchAllPosBtn')?.addEventListener('click', () => this.generateGlitch('pos', 'all'));
         document.getElementById('randomGlitchFluorBtn')?.addEventListener('click', () => this.generateGlitch('fluor', 'random'));
         document.getElementById('glitchAllFluorBtn')?.addEventListener('click', () => this.generateGlitch('fluor', 'all'));
+        document.getElementById('glitchAllNegBtn')?.addEventListener('click', () => this.generateGlitch('neg', 'all'));
+        document.getElementById('glitchAllPosBtn')?.addEventListener('click', () => this.generateGlitch('pos', 'all'));
         document.getElementById('randomGlitchInvBtn')?.addEventListener('click', () => this.generateGlitch('invfluor', 'random'));
         document.getElementById('glitchAllInvBtn')?.addEventListener('click', () => this.generateGlitch('invfluor', 'all'));
         document.getElementById('glitchClearAllBtn')?.addEventListener('click', () => this.clearAllGlitch());
         document.getElementById('srgbToLinearBtn')?.addEventListener('click', () => this.convertColorSpace('srgbToLinear'));
         document.getElementById('linearToSrgbBtn')?.addEventListener('click', () => this.convertColorSpace('linearToSrgb'));
         document.getElementById('randomSolidBtn')?.addEventListener('click', () => this.randomSolid());
+        document.getElementById('randomGradientNearBtn')?.addEventListener('click', () => this.randomGradientNear());
+        document.getElementById('randomGradientMidBtn')?.addEventListener('click', () => this.randomGradientMid());
+        document.getElementById('randomGradientWideBtn')?.addEventListener('click', () => this.randomGradientWide());
+        document.getElementById('randomGlitchSkinBtn')?.addEventListener('click', () => this.randomGlitchSkin());
         document.getElementById('invertColorsBtn')?.addEventListener('click', () => this.invertColors());
         // 反色工具（v0.5.9.46+）：选部位 + 源色（swatch+HEX） → 生成互补色 → 应用
         // 反色工具（v0.5.9.46+）：源色（swatch+HEX） → 生成互补色 → 应用
@@ -3245,9 +3979,55 @@ export class UIManager {
             invertHexInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doGen(); });
             if (invertColorPicker) invertColorPicker.addEventListener('change', () => { invertHexInput.value = invertColorPicker.value.toUpperCase(); doGen(); });
         }
-        document.getElementById('randomGradientBtn')?.addEventListener('click', () => this.randomGradient());
-        document.getElementById('randomHueShiftBtn')?.addEventListener('click', () => this.randomHueShift());
-        document.getElementById('clearHistoryBtn')?.addEventListener('click', () => { this.colorHistory = []; this.saveHistory(); this.renderHistory(); this.showToast('历史已清空'); });
+        document.getElementById('randomGradientNearBtn')?.addEventListener('click', () => this.randomGradientNear());
+        document.getElementById('randomGradientMidBtn')?.addEventListener('click', () => this.randomGradientMid());
+        document.getElementById('randomGradientWideBtn')?.addEventListener('click', () => this.randomGradientWide());
+        document.getElementById('randomGlitchSkinBtn')?.addEventListener('click', () => this.randomGlitchSkin());
+        document.getElementById('clearHistoryBtn')?.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            this.showInlineConfirm(btn, '确定清空全部历史颜色？', () => { this.colorHistory = []; this.saveHistory(); this.renderHistory(); this.showToast('历史已清空'); });
+        });
+        document.getElementById('importShareBtn')?.addEventListener('click', () => this.importShareCode());
+        document.getElementById('shareCodeInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.importShareCode(); });
+        document.getElementById('clearFavBtn')?.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            this.showInlineConfirm(btn, '确定清空全部偏好色？', () => { clearLibrary(); this.renderFavorites(); this.showToast('偏好色已清空'); });
+        });
+
+        // 数据备份（设置内导出 / 导入 JSON，v0.6.0.1）
+        document.getElementById('exportBackupBtn')?.addEventListener('click', () => this.exportBackup());
+        const importBackupInput = document.getElementById('importBackupInput');
+        document.getElementById('importBackupBtn')?.addEventListener('click', () => { if (importBackupInput) importBackupInput.click(); });
+        if (importBackupInput) importBackupInput.addEventListener('change', (e) => {
+            const f = e.target.files && e.target.files[0];
+            this.importBackupFile(f);
+            e.target.value = '';
+        });
+        // 通用确认弹窗
+        document.getElementById('confirmDialogOkBtn')?.addEventListener('click', () => { const ok = this._confirmOk; this.closeConfirm(); if (ok) ok(); });
+        document.getElementById('confirmDialogCancelBtn')?.addEventListener('click', () => this.closeConfirm());
+        document.getElementById('confirmDialogCloseBtn')?.addEventListener('click', () => this.closeConfirm());
+        document.getElementById('confirmBackdrop')?.addEventListener('click', () => this.closeConfirm());
+
+        // 重命名偏好色弹窗（v0.5.9.80）
+        document.getElementById('renameDialogConfirmBtn')?.addEventListener('click', () => this.confirmRenameDialog());
+        document.getElementById('renameDialogCancelBtn')?.addEventListener('click', () => this.closeRenameDialog());
+        document.getElementById('renameDialogCloseBtn')?.addEventListener('click', () => this.closeRenameDialog());
+        document.getElementById('renameDialogInput')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.confirmRenameDialog();
+            if (e.key === 'Escape') this.closeRenameDialog();
+        });
+        document.getElementById('renameDialogBackdrop')?.addEventListener('click', () => this.closeRenameDialog());
+
+        // 编辑预设描述弹窗（v0.6.0.1）
+        document.getElementById('presetDescConfirmBtn')?.addEventListener('click', () => this.confirmPresetDescDialog());
+        document.getElementById('presetDescCancelBtn')?.addEventListener('click', () => this.closePresetDescDialog());
+        document.getElementById('presetDescCloseBtn')?.addEventListener('click', () => this.closePresetDescDialog());
+        document.getElementById('presetDescEditInput')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) this.confirmPresetDescDialog();
+            if (e.key === 'Escape') this.closePresetDescDialog();
+        });
+        document.getElementById('presetDescBackdrop')?.addEventListener('click', () => this.closePresetDescDialog());
         
         // 撤销/重做不在这里绑定 —— createUndoRedoUI() 每次重建按钮时会挂上监听。
         // 若在此处再 safeBind 一次，按钮上会有两个 listener，点一下退两步（历史 bug）。

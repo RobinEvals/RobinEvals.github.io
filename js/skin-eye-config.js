@@ -31,6 +31,7 @@ const DEFAULTS = {
 	pupilScale: 0.75,
 	irisOutlineScale: 0.6,
 	irisBlur: 3,
+	irisBlend: 0.3,   // 内圈(secondary)向外圈(primary)的柔和过渡带宽度，按 irisR 比例
 	irisPrimary: 'FFFFFF',
 	irisSecondary: 'FFFFFF',
 	irisSecondaryHDR: false,

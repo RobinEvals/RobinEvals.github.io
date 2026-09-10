@@ -1,4 +1,4 @@
-import { DINOSAUR_DATA } from './skin-dino-data.js?v=0.5.9.79';
+import { DINOSAUR_DATA } from './skin-dino-data.js?v=0.6.1.0';
 
 const PATTERN_SCALE_MAP = { 'fine': '0', 'medium': '1', 'coarse': '2' };
 

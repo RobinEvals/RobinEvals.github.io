@@ -19,6 +19,7 @@ export function addPreset(name, colors, extra = {}) {
     if (extra.glitchChannels && Object.keys(extra.glitchChannels).length) {
         preset.glitchChannels = JSON.parse(JSON.stringify(extra.glitchChannels));
     }
+    if (extra.description) preset.description = extra.description;
     presets.push(preset);
     savePresets(presets);
     return { success: true, presets };
@@ -27,6 +28,26 @@ export function addPreset(name, colors, extra = {}) {
 export function deletePreset(index) {
     const presets = getPresets();
     if (index >= 0 && index < presets.length) { presets.splice(index, 1); savePresets(presets); }
+    return presets;
+}
+
+export function renamePresetAt(index, name) {
+    const presets = getPresets();
+    if (index >= 0 && index < presets.length) {
+        presets[index].name = (name || '').trim() || presets[index].name;
+        savePresets(presets);
+    }
+    return presets;
+}
+
+export function setPresetDescriptionAt(index, description) {
+    const presets = getPresets();
+    if (index >= 0 && index < presets.length) {
+        const desc = (description || '').trim();
+        if (desc) presets[index].description = desc;
+        else delete presets[index].description;
+        savePresets(presets);
+    }
     return presets;
 }
 
